@@ -10,16 +10,24 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const FIREBASE_KEY_JSON = process.env.FIREBASE_KEY;
 
 if (!OPENAI_API_KEY || !FIREBASE_KEY_JSON) {
-  console.error('❌ API key یا Firebase key در محیط تنظیم نشده');
+  console.error('❌ کلید OpenAI یا Firebase در محیط تنظیم نشده');
   process.exit(1);
 }
 
-// 🔐 مقداردهی Firebase Admin از ENV
+let firebaseConfig;
+try {
+  firebaseConfig = JSON.parse(FIREBASE_KEY_JSON);
+} catch (err) {
+  console.error('❌ کلید Firebase معتبر نیست یا ساختار JSON اشتباه است');
+  process.exit(1);
+}
+
+// 🔐 مقداردهی Firebase Admin
 admin.initializeApp({
-  credential: admin.credential.cert(JSON.parse(FIREBASE_KEY_JSON)),
+  credential: admin.credential.cert(firebaseConfig),
 });
 
-// 💾 MongoDB Atlas
+// 💾 اتصال به MongoDB Atlas
 const uri = 'mongodb+srv://qutor:14arman69@cluster0.3wz5uni.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0';
 const client = new MongoClient(uri);
 let usersCollection;
@@ -28,7 +36,7 @@ async function connectToMongo() {
   try {
     await client.connect();
     usersCollection = client.db('qutor-app').collection('users');
-    console.log('✅ Connected to MongoDB');
+    console.log('✅ MongoDB متصل شد');
   } catch (err) {
     console.error('❌ MongoDB Error:', err.message);
     process.exit(1);
@@ -39,7 +47,7 @@ connectToMongo();
 const app = express();
 const port = process.env.PORT || 3000;
 
-// 🔒 شماره‌های مجاز (لیست سفید)
+// 🔒 شماره‌های مجاز
 const whitelist = ['+989123456789', '+989365898911'];
 
 app.use(cors());
