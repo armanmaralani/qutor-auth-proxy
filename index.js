@@ -5,29 +5,34 @@ const admin = require('firebase-admin');
 const { MongoClient } = require('mongodb');
 const axios = require('axios');
 
-// 🔐 بارگذاری کلیدهای API از متغیرهای محیطی
+// بارگذاری کلید OpenAI فقط از محیط
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const FIREBASE_KEY_JSON = process.env.FIREBASE_KEY;
-
-if (!OPENAI_API_KEY || !FIREBASE_KEY_JSON) {
-  console.error('❌ کلید OpenAI یا Firebase در محیط تنظیم نشده');
+if (!OPENAI_API_KEY) {
+  console.error('❌ کلید OpenAI در محیط تنظیم نشده');
   process.exit(1);
 }
 
+// بارگذاری کلید Firebase با تشخیص محیط اجرا
 let firebaseConfig;
 try {
-  firebaseConfig = JSON.parse(FIREBASE_KEY_JSON);
+  if (process.env.RENDER === 'true') {
+    // روی Render اجرا می‌شود
+    firebaseConfig = require('/etc/secrets/firebase-key.json');
+  } else {
+    // روی لوکال اجرا می‌شود (مسیر فایل را طبق محل قرارگیری تنظیم کن)
+    firebaseConfig = require('./firebase-key.json');
+  }
 } catch (err) {
-  console.error('❌ کلید Firebase معتبر نیست یا ساختار JSON اشتباه است');
+  console.error('❌ فایل firebase-key.json یافت نشد یا مشکل دارد:', err.message);
   process.exit(1);
 }
 
-// 🔐 مقداردهی Firebase Admin
+// مقداردهی Firebase Admin
 admin.initializeApp({
   credential: admin.credential.cert(firebaseConfig),
 });
 
-// 💾 اتصال به MongoDB Atlas
+// اتصال به دیتابیس MongoDB Atlas
 const uri = 'mongodb+srv://qutor:14arman69@cluster0.3wz5uni.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0';
 const client = new MongoClient(uri);
 let usersCollection;
@@ -47,7 +52,7 @@ connectToMongo();
 const app = express();
 const port = process.env.PORT || 3000;
 
-// 🔒 شماره‌های مجاز
+// لیست سفید (whitelist)
 const whitelist = ['+989123456789', '+989365898911'];
 
 app.use(cors());
