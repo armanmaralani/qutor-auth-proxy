@@ -1,9 +1,20 @@
 const express = require('express');
 const cors = require('cors');
-const bodyParser = require('body-parser');
+// const bodyParser = require('body-parser'); // حذف شد چون express خودش json رو هندل میکنه
 const admin = require('firebase-admin');
 const { MongoClient } = require('mongodb');
 const axios = require('axios');
+
+// لاگ اولیه برای دیباگ
+console.log("Starting server...");
+
+process.on('uncaughtException', (err) => {
+  console.error('Unhandled Exception:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
 
 // بارگذاری کلید OpenAI فقط از محیط
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -16,10 +27,8 @@ if (!OPENAI_API_KEY) {
 let firebaseConfig;
 try {
   if (process.env.RENDER === 'true') {
-    // روی Render اجرا می‌شود
     firebaseConfig = require('/etc/secrets/firebase-key.json');
   } else {
-    // روی لوکال اجرا می‌شود (مسیر فایل را طبق محل قرارگیری تنظیم کن)
     firebaseConfig = require('./firebase-key.json');
   }
 } catch (err) {
@@ -50,16 +59,27 @@ async function connectToMongo() {
 connectToMongo();
 
 const app = express();
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 10000;
+console.log(`🚀 Server will run on port: ${port}`);
 
 // لیست سفید (whitelist)
 const whitelist = ['+989123456789', '+989365898911'];
 
 app.use(cors());
-app.use(bodyParser.json());
+app.use(express.json()); // جایگزین bodyParser
+
+// لاگ همه درخواست‌ها
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} - Body:`, req.body);
+  next();
+});
 
 app.get('/', (req, res) => {
   res.send('✅ Qutor API is running.');
+});
+
+app.get('/test', (req, res) => {
+  res.json({ message: 'server is running' });
 });
 
 app.post('/chat', async (req, res) => {
@@ -76,12 +96,12 @@ app.post('/chat', async (req, res) => {
           { role: 'user', content: question }
         ],
         temperature: 0.4,
-        max_tokens: 1000
+        max_tokens: 1000,
       },
       {
         headers: {
           Authorization: `Bearer ${OPENAI_API_KEY}`,
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
         }
       }
     );
@@ -168,6 +188,39 @@ app.post('/increment-usage', async (req, res) => {
   }
 });
 
-app.listen(port, () => {
-  console.log(`🚀 Server is running on http://localhost:${port}`);
+app.post('/submit-user-info', async (req, res) => {
+  const { phoneNumber, name, lastName, age, gender, field } = req.body;
+
+  if (!phoneNumber || !name || !lastName || !age || !gender || !field) {
+    return res.status(400).json({ message: '❌ همه فیلدها باید پر شوند' });
+  }
+
+  try {
+    const result = await usersCollection.updateOne(
+      { phoneNumber },
+      {
+        $set: {
+          name,
+          lastName,
+          age,
+          gender,
+          field,
+          updatedAt: new Date()
+        }
+      },
+      { upsert: true }
+    );
+
+    res.json({ message: '✅ اطلاعات کاربر ثبت شد' });
+  } catch (err) {
+    console.error('❌ خطا در ثبت اطلاعات کاربر:', err.message);
+    res.status(500).json({ message: '❌ خطا در سرور', error: err.message });
+  }
+});
+
+// لاگ شروع برنامه
+console.log('Starting server...');
+
+app.listen(port, '0.0.0.0', () => {
+  console.log(`🚀 Server is running on port ${port}`);
 });
