@@ -120,7 +120,7 @@ app.post('/ask-question-image', async (req, res) => {
     const response = await axios.post(
       'https://api.openai.com/v1/chat/completions',
       {
-        model: 'gpt-4-vision-preview', // یا "gpt-4o" اگر کلیدت ساپورت می‌کند
+        model: 'gpt-4o', // یا "gpt-4o" اگر کلیدت ساپورت می‌کند
         messages: [
           {
             role: 'user',
