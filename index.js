@@ -1,11 +1,9 @@
 const express = require('express');
 const cors = require('cors');
-// const bodyParser = require('body-parser'); // حذف شد چون express خودش json رو هندل میکنه
 const admin = require('firebase-admin');
 const { MongoClient } = require('mongodb');
 const axios = require('axios');
 
-// لاگ اولیه برای دیباگ
 console.log("Starting server...");
 
 process.on('uncaughtException', (err) => {
@@ -36,7 +34,6 @@ try {
   process.exit(1);
 }
 
-// مقداردهی Firebase Admin
 admin.initializeApp({
   credential: admin.credential.cert(firebaseConfig),
 });
@@ -62,11 +59,10 @@ const app = express();
 const port = process.env.PORT || 10000;
 console.log(`🚀 Server will run on port: ${port}`);
 
-// لیست سفید (whitelist)
 const whitelist = ['+989123456789', '+989365898911'];
 
 app.use(cors());
-app.use(express.json()); // جایگزین bodyParser
+app.use(express.json({ limit: '15mb' })); // افزایش محدودیت حجم برای base64 عکس
 
 // لاگ همه درخواست‌ها
 app.use((req, res, next) => {
@@ -112,6 +108,47 @@ app.post('/chat', async (req, res) => {
   }
 });
 
+// ==== روت جدید برای سوال تصویری (GPT-4 Vision) ====
+app.post('/ask-question-image', async (req, res) => {
+  const { imageBase64 } = req.body;
+
+  if (!imageBase64) {
+    return res.status(400).json({ error: '❌ تصویر ارسال نشده است.' });
+  }
+
+  try {
+    const response = await axios.post(
+      'https://api.openai.com/v1/chat/completions',
+      {
+        model: 'gpt-4-vision-preview', // یا "gpt-4o" اگر کلیدت ساپورت می‌کند
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'در این عکس یک سؤال درسی وجود دارد. لطفاً فقط متن سؤال را استخراج کن و مرحله به مرحله توضیح و جواب صحیح را ارائه بده.' },
+              { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${imageBase64}` } }
+            ]
+          }
+        ],
+        max_tokens: 1500,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
+          'Content-Type': 'application/json',
+        }
+      }
+    );
+    const answer = response.data.choices?.[0]?.message?.content || '';
+    res.json({ answer: answer.trim() });
+  } catch (err) {
+    console.error('❌ OpenAI Vision Error:', err.response?.data || err.message);
+    res.status(500).json({ message: '❌ خطا در پردازش تصویر یا ارتباط با OpenAI', error: err.message });
+  }
+});
+// ==== پایان روت GPT-4 Vision ====
+
+// سایر روال‌ها به همان شکل قبلی...
 app.post('/send-otp', async (req, res) => {
   const { phoneNumber } = req.body;
   if (!phoneNumber) return res.status(400).json({ message: '❌ شماره ارسال نشده' });
