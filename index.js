@@ -9,7 +9,6 @@ console.log("Starting server...");
 process.on('uncaughtException', (err) => {
   console.error('Unhandled Exception:', err);
 });
-
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
@@ -120,7 +119,7 @@ app.post('/ask-question-image', async (req, res) => {
     const response = await axios.post(
       'https://api.openai.com/v1/chat/completions',
       {
-        model: 'gpt-4o', // یا "gpt-4o" اگر کلیدت ساپورت می‌کند
+        model: 'gpt-4o', // یا "gpt-4-vision-preview" اگر کلیدت ساپورت می‌کند
         messages: [
           {
             role: 'user',
@@ -129,17 +128,19 @@ app.post('/ask-question-image', async (req, res) => {
                 type: 'text',
                 text:
                   `در این عکس یک سوال امتحانی از کتاب‌های درسی ایران (ریاضی، فیزیک، شیمی، زیست، ادبیات، عربی، زبان، دینی و ...) وجود دارد.
-            لطفاً فقط متن سوال را دقیق و به زبان فارسی استخراج کن (از روی عکس بخوان).
-            اگر سوال را کامل نمی‌توانی تشخیص بدهی، اعلام کن.
-            بعد از استخراج سوال، ابتدا فقط متن سوال را نمایش بده، سپس قدم‌به‌قدم راه‌حل را بنویس و در انتها جواب نهایی یا صحیح را خیلی واضح مشخص کن (اگر تستی است گزینه را هم بنویس).
-            پاسخ را کاملاً به زبان فارسی، دقیق و ساده توضیح بده.`
+لطفاً فقط متن سوال را دقیق و به زبان فارسی استخراج کن (از روی عکس بخوان).
+اگر سوال را کامل نمی‌توانی تشخیص بدهی، اعلام کن.
+بعد از استخراج سوال، ابتدا فقط متن سوال را نمایش بده، سپس قدم‌به‌قدم راه‌حل را بنویس و در انتها جواب نهایی یا صحیح را خیلی واضح مشخص کن (اگر تستی است گزینه را هم بنویس).
+پاسخ را کاملاً به زبان فارسی، دقیق و ساده توضیح بده.`
               },
               {
                 type: 'image_url',
                 image_url: { url: `data:image/jpeg;base64,${imageBase64}` }
               }
             ]
-        max_tokens: 1500,
+          }
+        ],
+        max_tokens: 1500
       },
       {
         headers: {
@@ -157,7 +158,7 @@ app.post('/ask-question-image', async (req, res) => {
 });
 // ==== پایان روت GPT-4 Vision ====
 
-// سایر روال‌ها به همان شکل قبلی...
+// بقیه روال‌ها به همان شکل قبلی...
 app.post('/send-otp', async (req, res) => {
   const { phoneNumber } = req.body;
   if (!phoneNumber) return res.status(400).json({ message: '❌ شماره ارسال نشده' });
