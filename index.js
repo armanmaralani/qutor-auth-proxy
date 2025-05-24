@@ -208,6 +208,59 @@ app.post('/ask-question-image', async (req, res) => {
 });
 // ==== پایان روت حرفه‌ای سوال تصویری ====
 
+// --- Endpoint جدید: جواب فقط بر اساس منابع دیتابیس ---
+app.post('/answer-from-sources', async (req, res) => {
+  const { question } = req.body;
+  if (!question) return res.status(400).json({ message: '❌ سوال ارسال نشده است.' });
+
+  // جستجو در منابع
+  let results = [];
+  try {
+    results = await sourcesCollection.find({
+      $or: [
+        { title: { $regex: question, $options: 'i' } },
+        { chunk: { $regex: question, $options: 'i' } },
+        { tags: { $elemMatch: { $regex: question, $options: 'i' } } }
+      ]
+    }).toArray();
+  } catch (err) {
+    return res.status(500).json({ message: '❌ خطا در جستجوی منابع', error: err.message });
+  }
+
+  // ساخت متن منابع
+  const sourcesText = results.map(item => item.chunk).join('\n---\n').slice(0, 3500);
+  const prompt = `فقط با توجه به منابع زیر به این سوال جواب بده. اگر پاسخ کامل در منابع نبود، بنویس "در منابع موجود نیست".
+منابع:
+${sourcesText}
+سوال: ${question}
+`;
+
+  // ارسال به ChatGPT
+  try {
+    const response = await axios.post(
+      'https://api.openai.com/v1/chat/completions',
+      {
+        model: 'gpt-3.5-turbo',
+        messages: [
+          { role: 'system', content: 'تو یک معلم راهنما هستی.' },
+          { role: 'user', content: prompt }
+        ],
+        temperature: 0.2,
+        max_tokens: 800,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
+          'Content-Type': 'application/json',
+        }
+      }
+    );
+    res.json({ answer: response.data.choices[0].message.content.trim(), sources: results });
+  } catch (err) {
+    res.status(500).json({ message: '❌ خطا در ChatGPT', error: err.message });
+  }
+});
+
 // ادامه روال‌های قبلی
 app.post('/send-otp', async (req, res) => {
   const { phoneNumber } = req.body;
