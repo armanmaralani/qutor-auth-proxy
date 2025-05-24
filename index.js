@@ -39,7 +39,7 @@ admin.initializeApp({
 });
 
 // اتصال به دیتابیس MongoDB Atlas
-const uri = 'mongodb+srv://qutor:14arman69@cluster0.3wz5uni.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0';
+const uri = 'mongodb+srv://qutor:armanMaralani@cluster0.3wz5uni.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0';
 const client = new MongoClient(uri);
 let usersCollection;
 let sourcesCollection;
