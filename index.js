@@ -6,6 +6,7 @@ const axios = require('axios');
 
 console.log("Starting server...");
 
+// هندل خطاهای کلی
 process.on('uncaughtException', (err) => {
   console.error('Unhandled Exception:', err);
 });
@@ -142,15 +143,15 @@ app.post('/chat', async (req, res) => {
   }
 });
 
-// ==== روت حرفه‌ای برای سوال تصویری (GPT-4o Vision با پرامپت تخصصی) ====
+// ==== روت حرفه‌ای برای سوال تصویری (GPT-4o Vision + سرچ منابع) ====
 app.post('/ask-question-image', async (req, res) => {
   const { imageBase64 } = req.body;
-
   if (!imageBase64) {
     return res.status(400).json({ error: '❌ تصویر ارسال نشده است.' });
   }
 
   try {
+    // مرحله اول: OCR با ChatGPT Vision
     const response = await axios.post(
       'https://api.openai.com/v1/chat/completions',
       {
@@ -162,15 +163,7 @@ app.post('/ask-question-image', async (req, res) => {
               {
                 type: 'text',
                 text: `
-در این تصویر، یک سوال امتحانی فارسی (ریاضی، فیزیک، شیمی، زیست، ادبیات، دینی، عربی، زبان یا هر درس دیگر) وجود دارد که معمولاً از کتاب‌های درسی ایران یا برگه امتحانی گرفته شده است.
-۱. فقط متن کامل و دقیق سوال و گزینه‌ها را خط‌به‌خط از روی تصویر استخراج کن (OCR)، حتی اگر بعضی بخش‌ها ناخوانا یا ناقص است، همان را بنویس و هیچ چیز از خودت نساز.
-۲. متن سوال را کامل با تیتر «متن سوال» و گزینه‌ها را با تیتر «گزینه‌ها» و هرکدام شماره‌دار یا حروف‌دار (مثل الف، ب، ج، د یا ۱،۲،۳،۴) جدا بنویس.
-۳. اگر هیچ متنی قابل استخراج نیست، فقط بنویس «متن سوال واضح نیست.» و توضیح بیشتر نده.
-۴. بعد از نمایش متن سوال و گزینه‌ها (اگر وجود داشت)، پاسخ تشریحی را مرحله‌به‌مرحله، دقیق، کاملاً به زبان فارسی، و با توضیح کامل بنویس. اگر فرمول ریاضی یا کسر/رادیکال/توان بود، هم فرمول را با لاتکس (LaTeX) و هم توضیح ساده فارسی ارائه کن.
-۵. در انتها، جواب صحیح را به وضوح و کاملاً مشخص اعلام کن (اگر تستی است گزینه را هم بنویس).
-۶. هرگز از خودت اطلاعات اضافی، متن جدید، گزینه یا سوال نساز و فقط براساس عکس پاسخ بده.
-
-خروجی باید دقیقاً مطابق دستور بالا و کاملاً به زبان فارسی باشد.
+تصویر را بررسی کن و فقط متن دقیق سؤال و گزینه‌ها را (بدون توضیح اضافه) استخراج کن. اگر تستی نیست فقط همان سؤال را بنویس. هیچ توضیح اضافه‌ای ننویس. خروجی فقط باید متن OCR باشد.
 `
               },
               {
@@ -180,7 +173,7 @@ app.post('/ask-question-image', async (req, res) => {
             ]
           }
         ],
-        max_tokens: 1800
+        max_tokens: 1200
       },
       {
         headers: {
@@ -189,16 +182,33 @@ app.post('/ask-question-image', async (req, res) => {
         }
       }
     );
-    const answer = response.data.choices?.[0]?.message?.content || '';
-    res.json({ answer: answer.trim() });
+    const ocrText = response.data.choices?.[0]?.message?.content?.trim() || '';
+
+    // مرحله دوم: جستجو در منابع با متن OCR شده
+    let searchResults = [];
+    if (ocrText.length > 4) {
+      searchResults = await sourcesCollection.find({
+        $or: [
+          { title: { $regex: ocrText, $options: 'i' } },
+          { chunk: { $regex: ocrText, $options: 'i' } },
+          { tags: { $elemMatch: { $regex: ocrText, $options: 'i' } } }
+        ]
+      }).toArray();
+    }
+
+    // خروجی ترکیبی: متن OCR و نتیجه منابع داخلی
+    res.json({
+      ocrText,
+      sources: searchResults
+    });
   } catch (err) {
     console.error('❌ OpenAI Vision Error:', err.response?.data || err.message);
     res.status(500).json({ message: '❌ خطا در پردازش تصویر یا ارتباط با OpenAI', error: err.message });
   }
 });
-// ==== پایان روت حرفه‌ای GPT-4 Vision ====
+// ==== پایان روت حرفه‌ای سوال تصویری ====
 
-// بقیه روال‌ها به همان شکل قبلی...
+// ادامه روال‌های قبلی
 app.post('/send-otp', async (req, res) => {
   const { phoneNumber } = req.body;
   if (!phoneNumber) return res.status(400).json({ message: '❌ شماره ارسال نشده' });
@@ -283,7 +293,7 @@ app.post('/submit-user-info', async (req, res) => {
   }
 
   try {
-    const result = await usersCollection.updateOne(
+    await usersCollection.updateOne(
       { phoneNumber },
       {
         $set: {
