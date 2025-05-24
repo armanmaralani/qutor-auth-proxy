@@ -41,13 +41,13 @@ admin.initializeApp({
 const uri = 'mongodb+srv://qutor:14arman69@cluster0.3wz5uni.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0';
 const client = new MongoClient(uri);
 let usersCollection;
-let sourcesCollection; // NEW
+let sourcesCollection;
 
 async function connectToMongo() {
   try {
     await client.connect();
     usersCollection = client.db('qutor-app').collection('users');
-    sourcesCollection = client.db('qutor-app').collection('sources'); // NEW
+    sourcesCollection = client.db('qutor-app').collection('sources');
     console.log('✅ MongoDB متصل شد');
   } catch (err) {
     console.error('❌ MongoDB Error:', err.message);
@@ -79,7 +79,7 @@ app.get('/test', (req, res) => {
   res.json({ message: 'server is running' });
 });
 
-// --- NEW: endpoint منابع ---
+// --- endpoint دریافت همه منابع ---
 app.get('/sources', async (req, res) => {
   try {
     const sources = await sourcesCollection.find({}).toArray();
@@ -89,7 +89,28 @@ app.get('/sources', async (req, res) => {
     res.status(500).json({ message: '❌ خطا در سرور', error: err.message });
   }
 });
-// --- END NEW ---
+
+// --- endpoint جستجو در منابع ---
+app.post('/search-sources', async (req, res) => {
+  const { query } = req.body;
+  if (!query) return res.status(400).json({ message: '❌ متن جستجو ارسال نشده است.' });
+
+  try {
+    const results = await sourcesCollection.find({
+      $or: [
+        { title: { $regex: query, $options: 'i' } },
+        { chunk: { $regex: query, $options: 'i' } },
+        { tags: { $elemMatch: { $regex: query, $options: 'i' } } }
+      ]
+    }).toArray();
+
+    res.json(results);
+  } catch (err) {
+    console.error('❌ خطا در جستجوی منابع:', err.message);
+    res.status(500).json({ message: '❌ خطا در سرور', error: err.message });
+  }
+});
+// --- پایان endpoint جستجو ---
 
 app.post('/chat', async (req, res) => {
   const { question } = req.body;
