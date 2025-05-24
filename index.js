@@ -41,11 +41,13 @@ admin.initializeApp({
 const uri = 'mongodb+srv://qutor:14arman69@cluster0.3wz5uni.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0';
 const client = new MongoClient(uri);
 let usersCollection;
+let sourcesCollection; // NEW
 
 async function connectToMongo() {
   try {
     await client.connect();
     usersCollection = client.db('qutor-app').collection('users');
+    sourcesCollection = client.db('qutor-app').collection('sources'); // NEW
     console.log('✅ MongoDB متصل شد');
   } catch (err) {
     console.error('❌ MongoDB Error:', err.message);
@@ -76,6 +78,18 @@ app.get('/', (req, res) => {
 app.get('/test', (req, res) => {
   res.json({ message: 'server is running' });
 });
+
+// --- NEW: endpoint منابع ---
+app.get('/sources', async (req, res) => {
+  try {
+    const sources = await sourcesCollection.find({}).toArray();
+    res.json(sources);
+  } catch (err) {
+    console.error('❌ خطا در دریافت منابع:', err.message);
+    res.status(500).json({ message: '❌ خطا در سرور', error: err.message });
+  }
+});
+// --- END NEW ---
 
 app.post('/chat', async (req, res) => {
   const { question } = req.body;
