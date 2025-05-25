@@ -4,10 +4,10 @@ const { MongoClient } = require('mongodb');
 const axios = require('axios');
 const querystring = require('querystring');
 
-// -------------- تنظیمات پیامک OTP ----------------
+// ----------- تنظیمات پیامک OTP -----------
 const SMS_API_KEY = "271090-ed383e0b114648a7917edecc61e73432";
 const SMS_HOST = 'http://api.sms-webservice.com/api/V3/';
-const SENDER = "3000XXXXXXX"; // شماره خدماتی خودت را جایگزین کن
+const SENDER = "3000XXXXXXX"; // شماره خدماتی خود را اینجا قرار بده
 
 function performRequest(endpoint, method, data) {
   if (method == 'GET') {
@@ -30,7 +30,7 @@ function SendSMS(Text, Sender, recipients) {
   });
 }
 
-// ---------- ذخیره OTP موقت (تست ساده، بهتره redis بعداً) ----------
+// ---------- ذخیره OTP موقت (ساده؛ برای تولید عملی، Redis پیشنهاد میشه) ----------
 const otpCache = {};
 
 // ----------- راه‌اندازی MongoDB ----------
@@ -219,13 +219,20 @@ app.post('/ask-question-image', async (req, res) => {
   }
 });
 
-// سایر route ها و endpoint ها همانند قبل
-
-// شروع سرور و نمایش همه route ها برای اطمینان
+// شروع سرور و نمایش فقط لاگ ساده (بدون app._router.stack)
 app.listen(port, '0.0.0.0', () => {
   console.log(`🚀 Server is running on port ${port}`);
-  console.log('Available endpoints:');
-  app._router.stack
-    .filter(r => r.route)
-    .forEach(r => console.log(` - ${Object.keys(r.route.methods).join(', ').toUpperCase()} ${r.route.path}`));
+  // اگر خواستی لاگ endpointها، از این کد استفاده کن (خطا ندهد):
+  try {
+    if (app._router && app._router.stack) {
+      app._router.stack
+        .filter(r => r.route)
+        .forEach(r => {
+          const methods = Object.keys(r.route.methods).join(', ').toUpperCase();
+          console.log(` - ${methods} ${r.route.path}`);
+        });
+    }
+  } catch (err) {
+    console.log('⚠️ Unable to print available endpoints:', err.message);
+  }
 });
