@@ -6,12 +6,11 @@ const querystring = require('querystring');
 
 // ----------- تنظیمات پیامک OTP با پترن -----------
 const SMS_API_KEY = "271090-ed383e0b114648a7917edecc61e73432";
-// مقدار زیر را دقیقاً کد پترن ایجادشده در پنل پیامک خود قرار بده.
-// اگر نداری مثلاً فرض می‌گیریم: otp-pattern-123
-const TEMPLATE_KEY = "otp-pattern-123";
+// این مقدار باید دقیقاً PatternKey از پنل پیامکی شما باشد:
+const TEMPLATE_KEY = "otp-pattern-123"; // << این را با مقدار واقعی پنل خود جایگزین کن
 const SMS_HOST = 'http://api.sms-webservice.com/api/V3/';
 
-// تابع درخواست به سامانه پیامکی
+// تابع درخواست به سامانه پیامکی (پترنی)
 function performRequest(endpoint, method, data) {
   if (method === 'GET') {
     endpoint += '?' + querystring.stringify(data);
@@ -79,15 +78,15 @@ app.post('/send-otp', async (req, res) => {
   const otp = Math.floor(10000 + Math.random() * 90000).toString();
 
   try {
-    await sendOTPPatternSMS(phone, otp);
+    const smsResp = await sendOTPPatternSMS(phone, otp);
 
     // ذخیره کد در حافظه موقت (۳ دقیقه)
     otpCache[phone] = { otp, expires: Date.now() + 3 * 60 * 1000 };
 
-    res.json({ success: true });
+    res.json({ success: true, smsResp: smsResp.data });
   } catch (e) {
-    // برای گرفتن خطای دقیق سامانه
-    console.log(e.response?.data || e.message);
+    // نمایش خطای کامل دریافتی از سامانه پیامک
+    console.log("SMS Send Error:", e.response?.data || e.message);
     res.status(500).json({ error: "ارسال پیامک ناموفق بود", detail: e.message, response: e.response?.data });
   }
 });
@@ -106,6 +105,11 @@ app.post('/verify-otp', (req, res) => {
   delete otpCache[phone];
   res.json({ success: true, message: "ورود موفق!" });
 });
+
+// تابع فرار دادن کاراکترهای خطرناک در RegExp برای جستجو در Mongo
+function escapeRegExp(string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 // ----------- ROUTE: OCR & RAG by IMAGE (همانند قبل) -----------
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -159,11 +163,12 @@ app.post('/ask-question-image', async (req, res) => {
     }
 
     // === مرحله ۲: جستجو در دیتابیس و انتخاب ۱۰ منبع مرتبط ===
+    const safeOcrText = escapeRegExp(ocrText);
     const searchResults = await sourcesCollection.find({
       $or: [
-        { title: { $regex: ocrText, $options: 'i' } },
-        { chunk: { $regex: ocrText, $options: 'i' } },
-        { tags: { $elemMatch: { $regex: ocrText, $options: 'i' } } }
+        { title: { $regex: safeOcrText, $options: 'i' } },
+        { chunk: { $regex: safeOcrText, $options: 'i' } },
+        { tags: { $elemMatch: { $regex: safeOcrText, $options: 'i' } } }
       ]
     }).limit(10).toArray();
 
@@ -224,7 +229,7 @@ app.post('/ask-question-image', async (req, res) => {
   }
 });
 
-// شروع سرور (لاگ endpoint ها اختیاری)
+// شروع سرور
 app.listen(port, '0.0.0.0', () => {
   console.log(`🚀 Server is running on port ${port}`);
 });
