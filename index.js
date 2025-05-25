@@ -1,40 +1,39 @@
 const express = require('express');
 const cors = require('cors');
-const admin = require('firebase-admin');
 const { MongoClient } = require('mongodb');
 const axios = require('axios');
+const querystring = require('querystring');
 
-console.log("Starting server...");
+// -------------- تنظیمات پیامک OTP ----------------
+const SMS_API_KEY = "271090-ed383e0b114648a7917edecc61e73432";
+const SMS_HOST = 'http://api.sms-webservice.com/api/V3/';
+const SENDER = "3000XXXXXXX"; // شماره خدماتی خودت را جایگزین کن
 
-process.on('uncaughtException', (err) => {
-  console.error('Unhandled Exception:', err);
-});
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-});
-
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-if (!OPENAI_API_KEY) {
-  console.error('❌ کلید OpenAI در محیط تنظیم نشده');
-  process.exit(1);
-}
-
-let firebaseConfig;
-try {
-  if (process.env.RENDER === 'true') {
-    firebaseConfig = require('/etc/secrets/firebase-key.json');
-  } else {
-    firebaseConfig = require('./firebase-key.json');
+function performRequest(endpoint, method, data) {
+  if (method == 'GET') {
+    endpoint += '?' + querystring.stringify(data);
+    data = null;
   }
-} catch (err) {
-  console.error('❌ فایل firebase-key.json یافت نشد یا مشکل دارد:', err.message);
-  process.exit(1);
+  return axios({
+    method: method,
+    url: SMS_HOST + endpoint,
+    data: data
+  });
 }
 
-admin.initializeApp({
-  credential: admin.credential.cert(firebaseConfig),
-});
+function SendSMS(Text, Sender, recipients) {
+  return performRequest('Send', 'GET', {
+    ApiKey: SMS_API_KEY,
+    Text: Text,
+    Sender: Sender,
+    Recipients: recipients
+  });
+}
 
+// ---------- ذخیره OTP موقت (تست ساده، بهتره redis بعداً) ----------
+const otpCache = {};
+
+// ----------- راه‌اندازی MongoDB ----------
 const uri = 'mongodb+srv://qutor:armanMaralani@cluster0.3wz5uni.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0';
 const client = new MongoClient(uri, { useUnifiedTopology: true });
 let usersCollection, sourcesCollection;
@@ -55,8 +54,6 @@ connectToMongo();
 const app = express();
 const port = process.env.PORT || 10000;
 
-const whitelist = ['+989123456789', '+989365898911'];
-
 app.use(cors());
 app.use(express.json({ limit: '20mb' }));
 
@@ -69,7 +66,49 @@ app.get('/', (req, res) => {
   res.send('✅ Qutor API is running.');
 });
 
-// === ROUTE: OCR & RAG by IMAGE ===
+// ----------- ROUTE: ارسال کد OTP پیامکی -----------
+app.post('/send-otp', async (req, res) => {
+  const { phone } = req.body;
+  if (!phone) return res.status(400).json({ error: "شماره موبایل الزامی است" });
+
+  // ساخت کد OTP تصادفی ۵ رقمی
+  const otp = Math.floor(10000 + Math.random() * 90000).toString();
+
+  try {
+    const text = `کد تایید شما: ${otp}`;
+    await SendSMS(text, SENDER, phone);
+
+    // ذخیره کد در حافظه موقت (۳ دقیقه)
+    otpCache[phone] = { otp, expires: Date.now() + 3 * 60 * 1000 };
+
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: "ارسال پیامک ناموفق بود", detail: e.message });
+  }
+});
+
+// ----------- ROUTE: تایید کد OTP -----------
+app.post('/verify-otp', (req, res) => {
+  const { phone, otp } = req.body;
+  if (!phone || !otp) return res.status(400).json({ error: "ورودی نامعتبر است" });
+
+  const record = otpCache[phone];
+  if (!record || record.otp !== otp || record.expires < Date.now()) {
+    return res.status(400).json({ error: "کد تایید اشتباه یا منقضی شده" });
+  }
+
+  // ورود موفق
+  delete otpCache[phone];
+  res.json({ success: true, message: "ورود موفق!" });
+});
+
+// ----------- ROUTE: OCR & RAG by IMAGE (همانند قبل) -----------
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+if (!OPENAI_API_KEY) {
+  console.error('❌ کلید OpenAI در محیط تنظیم نشده');
+  process.exit(1);
+}
+
 app.post('/ask-question-image', async (req, res) => {
   const { imageBase64 } = req.body;
   if (!imageBase64) return res.status(400).json({ error: '❌ تصویر ارسال نشده است.' });
@@ -181,8 +220,6 @@ app.post('/ask-question-image', async (req, res) => {
 });
 
 // سایر route ها و endpoint ها همانند قبل
-
-// ----- سایر endpoint هایت مثل /chat، /send-otp، /answer-from-sources و ... همینجوری بمونه -----
 
 // شروع سرور و نمایش همه route ها برای اطمینان
 app.listen(port, '0.0.0.0', () => {
