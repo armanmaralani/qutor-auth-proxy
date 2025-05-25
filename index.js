@@ -4,13 +4,11 @@ const { MongoClient } = require('mongodb');
 const axios = require('axios');
 const querystring = require('querystring');
 
-// ----------- تنظیمات پیامک OTP با پترن -----------
+// ------------- تنظیمات پیامک OTP با پترن (SendTokenSingle) -------------
 const SMS_API_KEY = "271090-ed383e0b114648a7917edecc61e73432";
-// این مقدار باید دقیقاً PatternKey از پنل پیامکی شما باشد:
-const TEMPLATE_KEY = "otp-pattern-123"; // << این را با مقدار واقعی پنل خود جایگزین کن
+const TEMPLATE_KEY = "otp-pattern-123"; // کد پترن که خودت تو پنل ساختی همینجا بذار
 const SMS_HOST = 'http://api.sms-webservice.com/api/V3/';
 
-// تابع درخواست به سامانه پیامکی (پترنی)
 function performRequest(endpoint, method, data) {
   if (method === 'GET') {
     endpoint += '?' + querystring.stringify(data);
@@ -23,8 +21,8 @@ function performRequest(endpoint, method, data) {
   });
 }
 
-// تابع ارسال پیامک OTP با پترن
 function sendOTPPatternSMS(destination, otp) {
+  // شماره موبایل را دقیق به فرمت 09 یا 989 شروع بشود ارسال کن
   return performRequest('SendTokenSingle', 'GET', {
     ApiKey: SMS_API_KEY,
     TemplateKey: TEMPLATE_KEY,
@@ -33,7 +31,7 @@ function sendOTPPatternSMS(destination, otp) {
   });
 }
 
-// ---------- ذخیره OTP موقت ----------
+// ----------- ذخیره OTP موقت ----------
 const otpCache = {};
 
 // ----------- راه‌اندازی MongoDB ----------
@@ -78,15 +76,15 @@ app.post('/send-otp', async (req, res) => {
   const otp = Math.floor(10000 + Math.random() * 90000).toString();
 
   try {
-    const smsResp = await sendOTPPatternSMS(phone, otp);
+    // ارسال پیامک پترنی
+    await sendOTPPatternSMS(phone, otp);
 
     // ذخیره کد در حافظه موقت (۳ دقیقه)
     otpCache[phone] = { otp, expires: Date.now() + 3 * 60 * 1000 };
 
-    res.json({ success: true, smsResp: smsResp.data });
+    res.json({ success: true });
   } catch (e) {
-    // نمایش خطای کامل دریافتی از سامانه پیامک
-    console.log("SMS Send Error:", e.response?.data || e.message);
+    console.log(e.response?.data || e.message);
     res.status(500).json({ error: "ارسال پیامک ناموفق بود", detail: e.message, response: e.response?.data });
   }
 });
@@ -106,12 +104,7 @@ app.post('/verify-otp', (req, res) => {
   res.json({ success: true, message: "ورود موفق!" });
 });
 
-// تابع فرار دادن کاراکترهای خطرناک در RegExp برای جستجو در Mongo
-function escapeRegExp(string) {
-  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-// ----------- ROUTE: OCR & RAG by IMAGE (همانند قبل) -----------
+// ----------- ROUTE: OCR & RAG by IMAGE -----------
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 if (!OPENAI_API_KEY) {
   console.error('❌ کلید OpenAI در محیط تنظیم نشده');
@@ -162,15 +155,23 @@ app.post('/ask-question-image', async (req, res) => {
       });
     }
 
-    // === مرحله ۲: جستجو در دیتابیس و انتخاب ۱۰ منبع مرتبط ===
-    const safeOcrText = escapeRegExp(ocrText);
-    const searchResults = await sourcesCollection.find({
-      $or: [
-        { title: { $regex: safeOcrText, $options: 'i' } },
-        { chunk: { $regex: safeOcrText, $options: 'i' } },
-        { tags: { $elemMatch: { $regex: safeOcrText, $options: 'i' } } }
-      ]
-    }).limit(10).toArray();
+    // === مرحله ۲: جستجوی پیشرفته با کلمات کلیدی ===
+    let searchResults = [];
+    if (ocrText.length > 4) {
+      // استخراج کلمات کلیدی معنی‌دار (غیراختصاصی)
+      const keywords = ocrText.replace(/[۰-۹0-9\(\)\/\\\:\?\.\,\،\؛\:\-\"\']/g, '').split(/\s+/).filter(w => w.length > 2);
+      if (keywords.length > 0) {
+        searchResults = await sourcesCollection.find({
+          $or: keywords.map(word => ({
+            $or: [
+              { title: { $regex: word, $options: 'i' } },
+              { chunk: { $regex: word, $options: 'i' } },
+              { tags: { $elemMatch: { $regex: word, $options: 'i' } } }
+            ]
+          }))
+        }).limit(10).toArray();
+      }
+    }
 
     let contextText = '';
     if (searchResults.length > 0) {
@@ -229,7 +230,7 @@ app.post('/ask-question-image', async (req, res) => {
   }
 });
 
-// شروع سرور
+// شروع سرور (لاگ endpointها اختیاری)
 app.listen(port, '0.0.0.0', () => {
   console.log(`🚀 Server is running on port ${port}`);
 });
