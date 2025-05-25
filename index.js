@@ -4,13 +4,16 @@ const { MongoClient } = require('mongodb');
 const axios = require('axios');
 const querystring = require('querystring');
 
-// ----------- تنظیمات پیامک OTP -----------
+// ----------- تنظیمات پیامک OTP با پترن -----------
 const SMS_API_KEY = "271090-ed383e0b114648a7917edecc61e73432";
+// مقدار زیر را دقیقاً کد پترن ایجادشده در پنل پیامک خود قرار بده.
+// اگر نداری مثلاً فرض می‌گیریم: otp-pattern-123
+const TEMPLATE_KEY = "otp-pattern-123";
 const SMS_HOST = 'http://api.sms-webservice.com/api/V3/';
-const SENDER = "3000XXXXXXX"; // شماره خدماتی خود را اینجا قرار بده
 
+// تابع درخواست به سامانه پیامکی
 function performRequest(endpoint, method, data) {
-  if (method == 'GET') {
+  if (method === 'GET') {
     endpoint += '?' + querystring.stringify(data);
     data = null;
   }
@@ -21,16 +24,17 @@ function performRequest(endpoint, method, data) {
   });
 }
 
-function SendSMS(Text, Sender, recipients) {
-  return performRequest('Send', 'GET', {
+// تابع ارسال پیامک OTP با پترن
+function sendOTPPatternSMS(destination, otp) {
+  return performRequest('SendTokenSingle', 'GET', {
     ApiKey: SMS_API_KEY,
-    Text: Text,
-    Sender: Sender,
-    Recipients: recipients
+    TemplateKey: TEMPLATE_KEY,
+    Destination: destination,
+    p1: otp
   });
 }
 
-// ---------- ذخیره OTP موقت (ساده؛ برای تولید عملی، Redis پیشنهاد میشه) ----------
+// ---------- ذخیره OTP موقت ----------
 const otpCache = {};
 
 // ----------- راه‌اندازی MongoDB ----------
@@ -66,7 +70,7 @@ app.get('/', (req, res) => {
   res.send('✅ Qutor API is running.');
 });
 
-// ----------- ROUTE: ارسال کد OTP پیامکی -----------
+// ----------- ROUTE: ارسال کد OTP پیامکی (پترنی) -----------
 app.post('/send-otp', async (req, res) => {
   const { phone } = req.body;
   if (!phone) return res.status(400).json({ error: "شماره موبایل الزامی است" });
@@ -75,15 +79,16 @@ app.post('/send-otp', async (req, res) => {
   const otp = Math.floor(10000 + Math.random() * 90000).toString();
 
   try {
-    const text = `کد تایید شما: ${otp}`;
-    await SendSMS(text, SENDER, phone);
+    await sendOTPPatternSMS(phone, otp);
 
     // ذخیره کد در حافظه موقت (۳ دقیقه)
     otpCache[phone] = { otp, expires: Date.now() + 3 * 60 * 1000 };
 
     res.json({ success: true });
   } catch (e) {
-    res.status(500).json({ error: "ارسال پیامک ناموفق بود", detail: e.message });
+    // برای گرفتن خطای دقیق سامانه
+    console.log(e.response?.data || e.message);
+    res.status(500).json({ error: "ارسال پیامک ناموفق بود", detail: e.message, response: e.response?.data });
   }
 });
 
@@ -219,20 +224,7 @@ app.post('/ask-question-image', async (req, res) => {
   }
 });
 
-// شروع سرور و نمایش فقط لاگ ساده (بدون app._router.stack)
+// شروع سرور (لاگ endpoint ها اختیاری)
 app.listen(port, '0.0.0.0', () => {
   console.log(`🚀 Server is running on port ${port}`);
-  // اگر خواستی لاگ endpointها، از این کد استفاده کن (خطا ندهد):
-  try {
-    if (app._router && app._router.stack) {
-      app._router.stack
-        .filter(r => r.route)
-        .forEach(r => {
-          const methods = Object.keys(r.route.methods).join(', ').toUpperCase();
-          console.log(` - ${methods} ${r.route.path}`);
-        });
-    }
-  } catch (err) {
-    console.log('⚠️ Unable to print available endpoints:', err.message);
-  }
 });
