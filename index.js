@@ -6,7 +6,7 @@ const querystring = require('querystring');
 
 // ------------- تنظیمات پیامک OTP با پترن (SendTokenSingle) -------------
 const SMS_API_KEY = "271090-ed383e0b114648a7917edecc61e73432";
-const TEMPLATE_KEY = "otp-pattern-123"; // کد پترن که خودت تو پنل ساختی همینجا بذار
+const TEMPLATE_KEY = "	Qutor"; // کد پترن که خودت تو پنل ساختی همینجا بذار
 const SMS_HOST = 'http://api.sms-webservice.com/api/V3/';
 
 function performRequest(endpoint, method, data) {
