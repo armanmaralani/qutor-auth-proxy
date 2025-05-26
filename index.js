@@ -4,9 +4,9 @@ const { MongoClient } = require('mongodb');
 const axios = require('axios');
 const querystring = require('querystring');
 
-// ------------- تنظیمات پیامک OTP با پترن (SendTokenSingle) -------------
+// تنظیمات پیامک OTP با الگوی SendTokenSingle
 const SMS_API_KEY = "271090-2AFCEBCC206840D1A39DF074DCE09BBC";
-const TEMPLATE_KEY = "Qutor"; // کد پترن که در پنل تعریف شده، بدون فاصله
+const TEMPLATE_KEY = "Qutor"; // بدون فاصله و دقیقاً همان‌طور که در پنل تعریف شده
 const SMS_HOST = 'https://api.sms-webservice.com/api/V3/';
 
 function performRequest(endpoint, method, data) {
@@ -32,12 +32,13 @@ function sendOTPPatternSMS(destination, otp) {
   });
 }
 
-// ----------- ذخیره OTP موقت ----------
+// ذخیره OTP موقت در حافظه (۳ دقیقه)
 const otpCache = {};
 
-// ----------- راه‌اندازی MongoDB ----------
+// اتصال به MongoDB
 const uri = 'mongodb+srv://qutor:armanMaralani@cluster0.3wz5uni.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0';
 const client = new MongoClient(uri, { useUnifiedTopology: true });
+
 let usersCollection, sourcesCollection;
 
 async function connectToMongo() {
@@ -65,25 +66,21 @@ app.use((req, res, next) => {
   next();
 });
 
+// تست اتصال ساده
 app.get('/', (req, res) => {
   res.send('✅ Qutor API is running.');
 });
 
-// ----------- ROUTE: ارسال کد OTP پیامکی (پترنی) -----------
+// روت ارسال OTP
 app.post('/send-otp', async (req, res) => {
   const { phone } = req.body;
   if (!phone) return res.status(400).json({ error: "شماره موبایل الزامی است" });
 
-  // کد OTP تصادفی ۵ رقمی
   const otp = Math.floor(10000 + Math.random() * 90000).toString();
 
   try {
-    // ارسال پیامک پترنی
     await sendOTPPatternSMS(phone, otp);
-
-    // ذخیره کد در حافظه موقت (۳ دقیقه)
     otpCache[phone] = { otp, expires: Date.now() + 3 * 60 * 1000 };
-
     res.json({ success: true });
   } catch (e) {
     console.log(e.response?.data || e.message);
@@ -91,7 +88,7 @@ app.post('/send-otp', async (req, res) => {
   }
 });
 
-// ----------- ROUTE: تایید کد OTP -----------
+// روت تایید OTP
 app.post('/verify-otp', (req, res) => {
   const { phone, otp } = req.body;
   if (!phone || !otp) return res.status(400).json({ error: "ورودی نامعتبر است" });
@@ -101,13 +98,11 @@ app.post('/verify-otp', (req, res) => {
     return res.status(400).json({ error: "کد تایید اشتباه یا منقضی شده" });
   }
 
-  // ورود موفق
   delete otpCache[phone];
   res.json({ success: true, message: "ورود موفق!" });
 });
 
-// ----------- ROUTE: OCR & پاسخ با OpenAI بر اساس تصویر -----------
-
+// روت استخراج متن از تصویر و پاسخ با OpenAI
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 if (!OPENAI_API_KEY) {
   console.error('❌ کلید OpenAI در محیط تنظیم نشده');
@@ -119,7 +114,7 @@ app.post('/ask-question-image', async (req, res) => {
   if (!imageBase64) return res.status(400).json({ error: '❌ تصویر ارسال نشده است.' });
 
   try {
-    // مرحله ۱: استخراج متن از تصویر (OCR) با GPT-4o
+    // مرحله ۱: OCR با GPT-4o
     const ocrResponse = await axios.post(
       'https://api.openai.com/v1/chat/completions',
       {
@@ -127,14 +122,8 @@ app.post('/ask-question-image', async (req, res) => {
         messages: [{
           role: 'user',
           content: [
-            {
-              type: 'text',
-              text: 'فقط متن دقیق سؤال و گزینه‌ها را از تصویر استخراج کن (بدون هیچ توضیح اضافه، فقط خود متن سؤال و گزینه‌ها).'
-            },
-            {
-              type: 'image_url',
-              image_url: { url: `data:image/jpeg;base64,${imageBase64}` }
-            }
+            { type: 'text', text: 'فقط متن دقیق سؤال و گزینه‌ها را از تصویر استخراج کن (بدون هیچ توضیح اضافه، فقط خود متن سؤال و گزینه‌ها).' },
+            { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${imageBase64}` } }
           ]
         }],
         max_tokens: 700
@@ -178,12 +167,10 @@ app.post('/ask-question-image', async (req, res) => {
 
     let contextText = '';
     if (searchResults.length > 0) {
-      contextText = searchResults
-        .map((item, idx) => `[منبع ${idx + 1}]:\n${item.chunk}`)
-        .join('\n\n');
+      contextText = searchResults.map((item, idx) => `[منبع ${idx + 1}]:\n${item.chunk}`).join('\n\n');
     }
 
-    // مرحله ۳: ارسال سؤال و منابع به GPT-4o برای پاسخ نهایی
+    // مرحله ۳: پاسخ نهایی با GPT-4o
     let finalAnswer = '';
     if (contextText) {
       const qaResponse = await axios.post(
@@ -191,22 +178,13 @@ app.post('/ask-question-image', async (req, res) => {
         {
           model: 'gpt-4o',
           messages: [
-            {
-              role: 'system',
-              content: 'شما یک معلم خبره هستید. فقط با توجه به منابع زیر، به سوال کاربر پاسخ بده و هیچ اطلاعات خارج از منابع اضافه نکن.'
-            },
-            {
-              role: 'user',
-              content: `سوال:\n${ocrText}\n\nمنابع:\n${contextText}\n\nپاسخ گام‌به‌گام و علمی بده.`
-            }
+            { role: 'system', content: 'شما یک معلم خبره هستید. فقط با توجه به منابع زیر، به سوال کاربر پاسخ بده و هیچ اطلاعات خارج از منابع اضافه نکن.' },
+            { role: 'user', content: `سوال:\n${ocrText}\n\nمنابع:\n${contextText}\n\nپاسخ گام‌به‌گام و علمی بده.` }
           ],
           max_tokens: 1200
         },
         {
-          headers: {
-            Authorization: `Bearer ${OPENAI_API_KEY}`,
-            'Content-Type': 'application/json',
-          }
+          headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' }
         }
       );
       finalAnswer = qaResponse.data.choices?.[0]?.message?.content?.trim() || '';
@@ -233,7 +211,7 @@ app.post('/ask-question-image', async (req, res) => {
   }
 });
 
-// شروع سرور
+// اجرای سرور
 app.listen(port, '0.0.0.0', () => {
   console.log(`🚀 Server is running on port ${port}`);
 });
