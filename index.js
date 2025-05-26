@@ -102,6 +102,53 @@ app.post('/verify-otp', (req, res) => {
   res.json({ success: true, message: "ورود موفق!" });
 });
 
+// روت بررسی وجود اطلاعات کاربر
+app.post('/check-user-info', async (req, res) => {
+  const { phoneNumber } = req.body;
+  if (!phoneNumber) return res.status(400).json({ error: "شماره موبایل الزامی است" });
+
+  try {
+    const user = await usersCollection.findOne({ phoneNumber });
+    res.json({ exists: !!user });
+  } catch (e) {
+    console.error("خطا در بررسی اطلاعات کاربر:", e);
+    res.status(500).json({ error: "خطا در سرور" });
+  }
+});
+
+// روت ثبت اطلاعات کاربر
+app.post('/submit-user-info', async (req, res) => {
+  const { phoneNumber, name, lastName, age, gender, field } = req.body;
+
+  if (!phoneNumber || !name || !lastName || !age || !gender || !field) {
+    return res.status(400).json({ message: "تمام فیلدها باید پر شوند." });
+  }
+
+  try {
+    // بررسی وجود کاربر
+    const existingUser = await usersCollection.findOne({ phoneNumber });
+    if (existingUser) {
+      return res.status(400).json({ message: "کاربر قبلاً ثبت شده است." });
+    }
+
+    // درج کاربر جدید
+    await usersCollection.insertOne({
+      phoneNumber,
+      name,
+      lastName,
+      age: parseInt(age, 10),
+      gender,
+      field,
+      createdAt: new Date(),
+    });
+
+    res.json({ success: true, message: "اطلاعات با موفقیت ثبت شد." });
+  } catch (e) {
+    console.error("خطا در ثبت اطلاعات کاربر:", e);
+    res.status(500).json({ message: "خطا در ثبت اطلاعات کاربر" });
+  }
+});
+
 // روت استخراج متن از تصویر و پاسخ با OpenAI
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 if (!OPENAI_API_KEY) {
