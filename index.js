@@ -6,8 +6,8 @@ const querystring = require('querystring');
 
 // ------------- تنظیمات پیامک OTP با پترن (SendTokenSingle) -------------
 const SMS_API_KEY = "271090-2AFCEBCC206840D1A39DF074DCE09BBC";
-const TEMPLATE_KEY = "	Qutor"; // کد پترن که خودت تو پنل ساختی همینجا بذار
-const SMS_HOST = ' https://api.sms-webservice.com/api/V3/SendTokenSingle';
+const TEMPLATE_KEY = "Qutor"; // کد پترن که در پنل تعریف شده، بدون فاصله
+const SMS_HOST = 'https://api.sms-webservice.com/api/V3/';
 
 function performRequest(endpoint, method, data) {
   if (method === 'GET') {
@@ -17,12 +17,13 @@ function performRequest(endpoint, method, data) {
   return axios({
     method: method,
     url: SMS_HOST + endpoint,
+    headers: { 'Content-Type': 'text/plain' },
     data: data
   });
 }
 
 function sendOTPPatternSMS(destination, otp) {
-  // شماره موبایل را دقیق به فرمت 09 یا 989 شروع بشود ارسال کن
+  // شماره موبایل را دقیقاً با فرمت 09 یا 989 ارسال کن
   return performRequest('SendTokenSingle', 'GET', {
     ApiKey: SMS_API_KEY,
     TemplateKey: TEMPLATE_KEY,
@@ -58,6 +59,7 @@ const port = process.env.PORT || 10000;
 app.use(cors());
 app.use(express.json({ limit: '20mb' }));
 
+// لاگ درخواست‌ها
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} - Body:`, req.body ? Object.keys(req.body) : 'no body');
   next();
@@ -72,7 +74,7 @@ app.post('/send-otp', async (req, res) => {
   const { phone } = req.body;
   if (!phone) return res.status(400).json({ error: "شماره موبایل الزامی است" });
 
-  // ساخت کد OTP تصادفی ۵ رقمی
+  // کد OTP تصادفی ۵ رقمی
   const otp = Math.floor(10000 + Math.random() * 90000).toString();
 
   try {
@@ -104,7 +106,8 @@ app.post('/verify-otp', (req, res) => {
   res.json({ success: true, message: "ورود موفق!" });
 });
 
-// ----------- ROUTE: OCR & RAG by IMAGE -----------
+// ----------- ROUTE: OCR & پاسخ با OpenAI بر اساس تصویر -----------
+
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 if (!OPENAI_API_KEY) {
   console.error('❌ کلید OpenAI در محیط تنظیم نشده');
@@ -116,7 +119,7 @@ app.post('/ask-question-image', async (req, res) => {
   if (!imageBase64) return res.status(400).json({ error: '❌ تصویر ارسال نشده است.' });
 
   try {
-    // === مرحله ۱: OCR با GPT-4o ===
+    // مرحله ۱: استخراج متن از تصویر (OCR) با GPT-4o
     const ocrResponse = await axios.post(
       'https://api.openai.com/v1/chat/completions',
       {
@@ -143,6 +146,7 @@ app.post('/ask-question-image', async (req, res) => {
         }
       }
     );
+
     const ocrText = ocrResponse.data.choices?.[0]?.message?.content?.trim() || '';
     console.log('[OCR] متن استخراج‌شده:', ocrText);
 
@@ -155,10 +159,9 @@ app.post('/ask-question-image', async (req, res) => {
       });
     }
 
-    // === مرحله ۲: جستجوی پیشرفته با کلمات کلیدی ===
+    // مرحله ۲: جستجوی پیشرفته با کلمات کلیدی
     let searchResults = [];
     if (ocrText.length > 4) {
-      // استخراج کلمات کلیدی معنی‌دار (غیراختصاصی)
       const keywords = ocrText.replace(/[۰-۹0-9\(\)\/\\\:\?\.\,\،\؛\:\-\"\']/g, '').split(/\s+/).filter(w => w.length > 2);
       if (keywords.length > 0) {
         searchResults = await sourcesCollection.find({
@@ -180,7 +183,7 @@ app.post('/ask-question-image', async (req, res) => {
         .join('\n\n');
     }
 
-    // === مرحله ۳: ارسال سؤال و منابع به GPT-4o برای پاسخ نهایی ===
+    // مرحله ۳: ارسال سؤال و منابع به GPT-4o برای پاسخ نهایی
     let finalAnswer = '';
     if (contextText) {
       const qaResponse = await axios.post(
@@ -230,10 +233,7 @@ app.post('/ask-question-image', async (req, res) => {
   }
 });
 
-// شروع سرور (لاگ endpointها اختیاری)
+// شروع سرور
 app.listen(port, '0.0.0.0', () => {
   console.log(`🚀 Server is running on port ${port}`);
 });
-
-
-// این یک تغییر تستی برای دیپلوی لیارا است
