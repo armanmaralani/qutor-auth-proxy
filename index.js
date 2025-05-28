@@ -32,7 +32,7 @@ function sendOTPPatternSMS(destination, otp) {
 
 const otpCache = {};
 
-const uri = 'mongodb+srv://qutor:armanMaralani@cluster0.3wz5uni.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0';
+const uri = 'mongodb://root:rAFPwnjnIKzWCibfMH6mWpC6@qutor-database:27017/my-app?authSource=admin&replicaSet=rs0&directConnection=true';
 const client = new MongoClient(uri, { useUnifiedTopology: true });
 
 let usersCollection, sourcesCollection;
@@ -40,8 +40,8 @@ let usersCollection, sourcesCollection;
 async function connectToMongo() {
   try {
     await client.connect();
-    usersCollection = client.db('qutor-app').collection('users');
-    sourcesCollection = client.db('qutor-app').collection('sources');
+    usersCollection = client.db('qutor-database').collection('users');
+    sourcesCollection = client.db('qutor-database').collection('sources');
     console.log('✅ MongoDB connected');
   } catch (err) {
     console.error('❌ MongoDB Error:', err.message);
