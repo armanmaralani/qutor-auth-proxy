@@ -3,6 +3,7 @@ const cors = require('cors');
 const { MongoClient } = require('mongodb');
 const axios = require('axios');
 const querystring = require('querystring');
+const FormData = require('form-data');
 
 const SMS_API_KEY = "271090-2AFCEBCC206840D1A39DF074DCE09BBC";
 const TEMPLATE_KEY = "Qutor";
@@ -148,11 +149,14 @@ app.post('/ask-question-image', async (req, res) => {
   if (!imageBase64) return res.status(400).json({ error: '❌ تصویر ارسال نشده است.' });
 
   try {
-    // ارسال تصویر به سرویس OCR
+    // ساخت فرم‌دیتا برای ارسال تصویر به OCR
+    const formData = new FormData();
+    formData.append('image', Buffer.from(imageBase64, 'base64'), 'image.jpg');
+
     const ocrResponse = await axios.post(
-      'https://ocr-flask.liara.run/api/ocr',
-      { imageBase64 },
-      { headers: { 'Content-Type': 'application/json' } }
+      'https://ocr-flask.liara.run/ocr',
+      formData,
+      { headers: formData.getHeaders() }
     );
 
     const ocrText = ocrResponse.data.text?.trim() || '';
