@@ -15,10 +15,10 @@ function performRequest(endpoint, method, data) {
     data = null;
   }
   return axios({
-    method: method,
+    method,
     url: SMS_HOST + endpoint,
     headers: { 'Content-Type': 'text/plain' },
-    data: data
+    data
   });
 }
 
@@ -181,11 +181,13 @@ app.post('/ask-question-image', async (req, res) => {
       if (keywords.length > 0) {
         searchResults = await sourcesCollection.find({
           $or: keywords.map(word => ({
+
             $or: [
               { title: { $regex: word, $options: 'i' } },
               { chunk: { $regex: word, $options: 'i' } },
               { tags: { $elemMatch: { $regex: word, $options: 'i' } } }
             ]
+
           }))
         }).limit(10).toArray();
       }
