@@ -161,11 +161,11 @@ app.post('/ask-question-image', async (req, res) => {
   if (!imageBase64) return res.status(400).json({ error: '❌ تصویر ارسال نشده است.' });
 
   try {
-    // مرحله ۱: OCR با GPT-4o
+    // مرحله ۱: OCR با مدل gpt-3.5-turbo
     const ocrResponse = await axios.post(
       'https://api.openai.com/v1/chat/completions',
       {
-        model: 'gpt-4o',
+        model: 'gpt-3.5-turbo',
         messages: [{
           role: 'user',
           content: [
@@ -217,13 +217,13 @@ app.post('/ask-question-image', async (req, res) => {
       contextText = searchResults.map((item, idx) => `[منبع ${idx + 1}]:\n${item.chunk}`).join('\n\n');
     }
 
-    // مرحله ۳: پاسخ نهایی با GPT-4o
+    // مرحله ۳: پاسخ نهایی با مدل gpt-3.5-turbo
     let finalAnswer = '';
     if (contextText) {
       const qaResponse = await axios.post(
         'https://api.openai.com/v1/chat/completions',
         {
-          model: 'gpt-4o',
+          model: 'gpt-3.5-turbo',
           messages: [
             { role: 'system', content: 'شما یک معلم خبره هستید. فقط با توجه به منابع زیر، به سوال کاربر پاسخ بده و هیچ اطلاعات خارج از منابع اضافه نکن.' },
             { role: 'user', content: `سوال:\n${ocrText}\n\nمنابع:\n${contextText}\n\nپاسخ گام‌به‌گام و علمی بده.` }
