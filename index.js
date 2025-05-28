@@ -3,7 +3,6 @@ const cors = require('cors');
 const { MongoClient } = require('mongodb');
 const axios = require('axios');
 const querystring = require('querystring');
-const FormData = require('form-data');
 
 const SMS_API_KEY = "271090-2AFCEBCC206840D1A39DF074DCE09BBC";
 const TEMPLATE_KEY = "Qutor";
@@ -145,20 +144,18 @@ if (!OPENAI_API_KEY) {
   process.exit(1);
 }
 
+// ============ اصلاح اصلی اینجاست ==============
 app.post('/ask-question-image', async (req, res) => {
   const { imageBase64 } = req.body;
   if (!imageBase64) return res.status(400).json({ error: '❌ تصویر ارسال نشده است.' });
 
   try {
-    // Prepare form data for OCR service
-    const formData = new FormData();
-    formData.append('image', Buffer.from(imageBase64, 'base64'), 'image.jpg');
-
+    // تغییر اصلی: ارسال مستقیم base64 به OCR با application/json
     console.log('[OCR] Sending image to OCR service...');
     const ocrResponse = await axios.post(
       'https://ocr-flask.liara.run/ocr',
-      formData,
-      { headers: formData.getHeaders() }
+      { imageBase64 },
+      { headers: { 'Content-Type': 'application/json' } }
     );
 
     const ocrText = ocrResponse.data.text?.trim() || '';
@@ -240,6 +237,7 @@ app.post('/ask-question-image', async (req, res) => {
     });
   }
 });
+// ============ پایان اصلاح اصلی ==============
 
 app.listen(port, '0.0.0.0', () => {
   console.log(`🚀 Server is running on port ${port}`);
