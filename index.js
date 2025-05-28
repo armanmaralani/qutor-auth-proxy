@@ -137,17 +137,17 @@ app.post('/submit-user-info', async (req, res) => {
   }
 });
 
-// ----------- RAG ROUTE (هوش مصنوعی گام‌به‌گام با دیتابیس اختصاصی) -----------
+// ----------- RAG ROUTE با جستجوی هوشمند و حرفه‌ای ------------------------
 app.post('/rag-answer', async (req, res) => {
   const { imageUrl } = req.body;
   if (!imageUrl) return res.status(400).json({ error: "آدرس تصویر الزامی است." });
 
   try {
-    // ۱. دریافت متن سؤال با هوش مصنوعی (Gemini Flash لیارا)
-    const liaraApiKey = process.env.LIARA_API_KEY || 'کلید-لیارا-خودت-اینجا-بذار';
+    // مرحله ۱: دریافت متن سؤال با مدل بینایی لیارا
+    const liaraApiKey = process.env.LIARA_API_KEY;
+    if (!liaraApiKey) return res.status(500).json({ error: "کلید لیارا ست نشده!" });
     const geminiApiUrl = 'https://ai.liara.ir/api/v1/6836ffd10a2dc9a15179b645/chat/completions';
 
-    // پرامپت جدید برای همه‌ی دروس هفتم تا دوازدهم
     const extractQuestionPrompt = "فقط متن سؤال کامل موجود در این تصویر را بدون هیچ توضیح اضافه و دقیق استخراج کن. این سؤال می‌تواند مربوط به هر درس از هفتم تا دوازدهم باشد.";
 
     const questionExtractRes = await axios.post(
@@ -166,22 +166,49 @@ app.post('/rag-answer', async (req, res) => {
       },
       { headers: { 'Authorization': `Bearer ${liaraApiKey}`, 'Content-Type': 'application/json' } }
     );
+
     const extractedQuestion = questionExtractRes.data.choices[0].message.content.trim();
     if (!extractedQuestion) {
       return res.status(400).json({ error: "متن سؤال استخراج نشد." });
     }
 
-    // مرحله ۲: جستجو در دیتابیس با متن سؤال (جستجوی مشابهت معنایی/کلمات کلیدی)
-    const relatedDocs = await sourcesCollection
-      .find({ question: { $regex: extractedQuestion.split(' ').slice(0, 3).join('|'), $options: 'i' } })
-      .limit(5)
-      .toArray();
+    // مرحله ۲: جستجوی حرفه‌ای و عمیق در دیتابیس
+    // حذف کلمات تکراری و بی‌معنی و کوتاه
+    const stopWords = [
+      "از", "به", "در", "که", "را", "با", "این", "برای", "یک", "تا", "است", "و", "یا", "شود", "شده", "کند", "بر", "اگر", "آن", "ولی", "پس", "چه", "هیچ", "هم", "اما", "ما", "تو", "من", "نه"
+    ];
+    let keywords = extractedQuestion
+      .replace(/[^\u0600-\u06FFa-zA-Z0-9\s]/g, '') // حذف نشانه‌گذاری
+      .split(/\s+/)
+      .filter(w => w.length > 2 && !stopWords.includes(w));
+    keywords = [...new Set(keywords)]; // حذف تکراری‌ها
+
+    // سرچ regex همزمان در فیلد سوال و جواب
+    const regex = keywords.join('|');
+    const cursor = await sourcesCollection.find({
+      $or: [
+        { question: { $regex: regex, $options: 'i' } },
+        { answer: { $regex: regex, $options: 'i' } }
+      ]
+    });
+
+    let docs = await cursor.toArray();
+
+    // امتیازدهی: تعداد تطابق هر کلیدواژه در متن سؤال و جواب رکورد
+    docs = docs.map(doc => {
+      let score = 0;
+      const text = ((doc.question || '') + ' ' + (doc.answer || '')).toLowerCase();
+      keywords.forEach(k => { if (text.includes(k.toLowerCase())) score++; });
+      return { ...doc, score };
+    }).sort((a, b) => b.score - a.score);
+
+    const relatedDocs = docs.slice(0, 5);
 
     if (!relatedDocs.length) {
       return res.json({ answer: "اطلاعات مرتبط در دیتابیس پیدا نشد." });
     }
 
-    // مرحله ۳: ساخت پرامپت RAG برای مدل هوش مصنوعی
+    // ساخت پرامپت نهایی
     let infoString = relatedDocs.map((doc, i) =>
       `- ${doc.question}\n  پاسخ: ${doc.answer}`).join('\n');
 
@@ -195,7 +222,7 @@ ${infoString}
 لطفاً آموزش گام‌به‌گام فقط و فقط بر اساس اطلاعات فوق بده و هیچ دانشی خارج از این داده‌ها استفاده نکن.
 `;
 
-    // مرحله ۴: گرفتن پاسخ گام‌به‌گام از مدل هوش مصنوعی (دوباره مدل Gemini را صدا بزن)
+    // پاسخ نهایی هوش مصنوعی بر اساس داده‌های دیتابیس
     const answerRes = await axios.post(
       geminiApiUrl,
       {
@@ -210,7 +237,7 @@ ${infoString}
 
     const aiAnswer = answerRes.data.choices[0].message.content.trim();
 
-    res.json({ answer: aiAnswer, extractedQuestion, relatedDocs });
+    res.json({ answer: aiAnswer, extractedQuestion, relatedDocs, keywords });
   } catch (err) {
     console.error("❌ خطا در /rag-answer:", err.response?.data || err.message);
     res.status(500).json({ error: "خطا در سرور یا مدل هوش مصنوعی", detail: err.message });
