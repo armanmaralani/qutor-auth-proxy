@@ -57,6 +57,7 @@ const port = process.env.PORT || 10000;
 app.use(cors());
 app.use(express.json({ limit: '20mb' }));
 
+// لاگ درخواست‌ها برای اشکال‌زدایی
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} - Body:`, req.body ? Object.keys(req.body) : 'no body');
   next();
@@ -153,6 +154,7 @@ app.post('/ask-question-image', async (req, res) => {
     const formData = new FormData();
     formData.append('image', Buffer.from(imageBase64, 'base64'), 'image.jpg');
 
+    console.log('[OCR] ارسال تصویر به سرویس OCR...');
     const ocrResponse = await axios.post(
       'https://ocr-flask.liara.run/ocr',
       formData,
@@ -175,6 +177,7 @@ app.post('/ask-question-image', async (req, res) => {
     let searchResults = [];
     if (ocrText.length > 4) {
       const keywords = ocrText.replace(/[۰-۹0-9\(\)\/\\\:\?\.\,\،\؛\:\-\"\']/g, '').split(/\s+/).filter(w => w.length > 2);
+      console.log('[DB] کلمات کلیدی برای جستجو:', keywords);
       if (keywords.length > 0) {
         searchResults = await sourcesCollection.find({
           $or: keywords.map(word => ({
@@ -186,6 +189,7 @@ app.post('/ask-question-image', async (req, res) => {
           }))
         }).limit(10).toArray();
       }
+      console.log('[DB] تعداد نتایج یافت شده:', searchResults.length);
     }
 
     let contextText = '';
@@ -196,6 +200,7 @@ app.post('/ask-question-image', async (req, res) => {
     // ارسال متن و context به OpenAI مدل gpt-3.5-turbo
     let finalAnswer = '';
     if (contextText) {
+      console.log('[OpenAI] ارسال سوال به OpenAI...');
       const qaResponse = await axios.post(
         'https://api.openai.com/v1/chat/completions',
         {
@@ -211,8 +216,10 @@ app.post('/ask-question-image', async (req, res) => {
         }
       );
       finalAnswer = qaResponse.data.choices?.[0]?.message?.content?.trim() || '';
+      console.log('[OpenAI] پاسخ دریافت شده:', finalAnswer);
     } else {
       finalAnswer = '❌ منبعی مرتبط با این سؤال در پایگاه داده یافت نشد.';
+      console.log('[OpenAI] منبعی یافت نشد.');
     }
 
     return res.json({
