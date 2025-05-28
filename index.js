@@ -1,4 +1,3 @@
-// index.js
 const express = require('express');
 const cors = require('cors');
 const { MongoClient } = require('mongodb');
@@ -137,6 +136,87 @@ app.post('/submit-user-info', async (req, res) => {
     res.status(500).json({ message: "خطا در ثبت اطلاعات کاربر" });
   }
 });
+
+// ----------- RAG ROUTE (هوش مصنوعی گام‌به‌گام با دیتابیس اختصاصی) -----------
+app.post('/rag-answer', async (req, res) => {
+  const { imageUrl } = req.body;
+  if (!imageUrl) return res.status(400).json({ error: "آدرس تصویر الزامی است." });
+
+  try {
+    // ۱. دریافت متن سؤال با هوش مصنوعی (Gemini Flash لیارا)
+    const liaraApiKey = process.env.LIARA_API_KEY || 'کلید-لیارا-خودت-اینجا-بذار';
+    const geminiApiUrl = 'https://ai.liara.ir/api/v1/6836ffd10a2dc9a15179b645/chat/completions';
+
+    // پرامپت جدید برای همه‌ی دروس هفتم تا دوازدهم
+    const extractQuestionPrompt = "فقط متن سؤال کامل موجود در این تصویر را بدون هیچ توضیح اضافه و دقیق استخراج کن. این سؤال می‌تواند مربوط به هر درس از هفتم تا دوازدهم باشد.";
+
+    const questionExtractRes = await axios.post(
+      geminiApiUrl,
+      {
+        model: "google/gemini-flash-1.5-8b",
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: extractQuestionPrompt },
+              { type: "image_url", image_url: { url: imageUrl } }
+            ]
+          }
+        ]
+      },
+      { headers: { 'Authorization': `Bearer ${liaraApiKey}`, 'Content-Type': 'application/json' } }
+    );
+    const extractedQuestion = questionExtractRes.data.choices[0].message.content.trim();
+    if (!extractedQuestion) {
+      return res.status(400).json({ error: "متن سؤال استخراج نشد." });
+    }
+
+    // مرحله ۲: جستجو در دیتابیس با متن سؤال (جستجوی مشابهت معنایی/کلمات کلیدی)
+    const relatedDocs = await sourcesCollection
+      .find({ question: { $regex: extractedQuestion.split(' ').slice(0, 3).join('|'), $options: 'i' } })
+      .limit(5)
+      .toArray();
+
+    if (!relatedDocs.length) {
+      return res.json({ answer: "اطلاعات مرتبط در دیتابیس پیدا نشد." });
+    }
+
+    // مرحله ۳: ساخت پرامپت RAG برای مدل هوش مصنوعی
+    let infoString = relatedDocs.map((doc, i) =>
+      `- ${doc.question}\n  پاسخ: ${doc.answer}`).join('\n');
+
+    const finalPrompt = `
+صورت سؤال:
+${extractedQuestion}
+
+اطلاعات آموزشی مرتبط از دیتابیس:
+${infoString}
+
+لطفاً آموزش گام‌به‌گام فقط و فقط بر اساس اطلاعات فوق بده و هیچ دانشی خارج از این داده‌ها استفاده نکن.
+`;
+
+    // مرحله ۴: گرفتن پاسخ گام‌به‌گام از مدل هوش مصنوعی (دوباره مدل Gemini را صدا بزن)
+    const answerRes = await axios.post(
+      geminiApiUrl,
+      {
+        model: "google/gemini-flash-1.5-8b",
+        messages: [
+          { role: "system", content: "تو یک معلم خبره و دقیق هستی." },
+          { role: "user", content: finalPrompt }
+        ]
+      },
+      { headers: { 'Authorization': `Bearer ${liaraApiKey}`, 'Content-Type': 'application/json' } }
+    );
+
+    const aiAnswer = answerRes.data.choices[0].message.content.trim();
+
+    res.json({ answer: aiAnswer, extractedQuestion, relatedDocs });
+  } catch (err) {
+    console.error("❌ خطا در /rag-answer:", err.response?.data || err.message);
+    res.status(500).json({ error: "خطا در سرور یا مدل هوش مصنوعی", detail: err.message });
+  }
+});
+// -------------------------------------------------------------------------
 
 app.listen(port, '0.0.0.0', () => {
   console.log(`🚀 Server is running on port ${port}`);
