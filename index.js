@@ -1,3 +1,4 @@
+// index.js
 const express = require('express');
 const cors = require('cors');
 const { MongoClient } = require('mongodb');
@@ -56,7 +57,6 @@ const port = process.env.PORT || 10000;
 app.use(cors());
 app.use(express.json({ limit: '20mb' }));
 
-// Log requests for debugging
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} - Body keys:`, req.body ? Object.keys(req.body) : 'no body');
   next();
@@ -137,113 +137,6 @@ app.post('/submit-user-info', async (req, res) => {
     res.status(500).json({ message: "خطا در ثبت اطلاعات کاربر" });
   }
 });
-
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-if (!OPENAI_API_KEY) {
-  console.error('❌ OpenAI API key not set in environment');
-  process.exit(1);
-}
-
-// ========= ESCAPE REGEX =========
-function escapeRegex(text) {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-// ============ اصل ماجرا اینجاست ==============
-app.post('/ask-question-image', async (req, res) => {
-  const { imageBase64 } = req.body;
-  if (!imageBase64) return res.status(400).json({ error: '❌ تصویر ارسال نشده است.' });
-
-  try {
-    // ارسال base64 با application/json به OCR
-    console.log('[OCR] Sending image to OCR service...');
-    const ocrResponse = await axios.post(
-      'https://ocr-flask.liara.run/ocr',
-      { imageBase64 },
-      { headers: { 'Content-Type': 'application/json' } }
-    );
-
-    const ocrText = ocrResponse.data.text?.trim() || '';
-    console.log('[OCR] Extracted text:', ocrText);
-
-    if (!ocrText || ocrText.length < 4) {
-      return res.json({
-        answer: '',
-        ocrText,
-        sources: [],
-        message: '❌ متن معناداری استخراج نشد.',
-      });
-    }
-
-    // Search database
-    let searchResults = [];
-    if (ocrText.length > 4) {
-      const rawKeywords = ocrText.replace(/[۰-۹0-9\(\)\/\\\:\?\.\,\،\؛\:\-\"\']/g, '').split(/\s+/).filter(w => w.length > 2);
-      const keywords = rawKeywords.map(escapeRegex);
-      console.log('[DB] Search keywords:', keywords);
-      if (keywords.length > 0) {
-        searchResults = await sourcesCollection.find({
-          $or: keywords.map(word => ({
-            $or: [
-              { title: { $regex: word, $options: 'i' } },
-              { chunk: { $regex: word, $options: 'i' } },
-              { tags: { $elemMatch: { $regex: word, $options: 'i' } } }
-            ]
-          }))
-        }).limit(10).toArray();
-      }
-      console.log('[DB] Results found:', searchResults.length);
-    }
-
-    let contextText = '';
-    if (searchResults.length > 0) {
-      contextText = searchResults.map((item, idx) => `[منبع ${idx + 1}]:\n${item.chunk}`).join('\n\n');
-    }
-
-    // Call OpenAI GPT-3.5-Turbo with context
-    let finalAnswer = '';
-    if (contextText) {
-      console.log('[OpenAI] Sending question to OpenAI...');
-      const qaResponse = await axios.post(
-        'https://api.openai.com/v1/chat/completions',
-        {
-          model: 'gpt-3.5-turbo',
-          messages: [
-            { role: 'system', content: 'شما یک معلم خبره هستید. فقط با توجه به منابع زیر، به سوال کاربر پاسخ بده و هیچ اطلاعات خارج از منابع اضافه نکن.' },
-            { role: 'user', content: `سوال:\n${ocrText}\n\nمنابع:\n${contextText}\n\nپاسخ گام‌به‌گام و علمی بده.` }
-          ],
-          max_tokens: 1200
-        },
-        {
-          headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' }
-        }
-      );
-      finalAnswer = qaResponse.data.choices?.[0]?.message?.content?.trim() || '';
-      console.log('[OpenAI] Received answer:', finalAnswer);
-    } else {
-      finalAnswer = '❌ منبعی مرتبط با این سؤال در پایگاه داده یافت نشد.';
-      console.log('[OpenAI] No sources found.');
-    }
-
-    return res.json({
-      answer: finalAnswer,
-      ocrText,
-      sources: searchResults
-    });
-
-  } catch (err) {
-    let errMsg = err?.response?.data || err.message;
-    console.error('❌ Processing error:', errMsg);
-    res.status(500).json({
-      answer: '',
-      ocrText: '',
-      sources: [],
-      message: '❌ خطا در پردازش تصویر یا ارتباط با OpenAI',
-      error: errMsg
-    });
-  }
-});
-// ============ پایان اصلاح ==============
 
 app.listen(port, '0.0.0.0', () => {
   console.log(`🚀 Server is running on port ${port}`);
