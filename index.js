@@ -4,9 +4,8 @@ const { MongoClient } = require('mongodb');
 const axios = require('axios');
 const querystring = require('querystring');
 
-// تنظیمات پیامک OTP با الگوی SendTokenSingle
 const SMS_API_KEY = "271090-2AFCEBCC206840D1A39DF074DCE09BBC";
-const TEMPLATE_KEY = "Qutor"; // بدون فاصله و دقیقاً همان‌طور که در پنل تعریف شده
+const TEMPLATE_KEY = "Qutor";
 const SMS_HOST = 'https://api.sms-webservice.com/api/V3/';
 
 function performRequest(endpoint, method, data) {
@@ -23,7 +22,6 @@ function performRequest(endpoint, method, data) {
 }
 
 function sendOTPPatternSMS(destination, otp) {
-  // شماره موبایل را دقیقاً با فرمت 09 یا 989 ارسال کن
   return performRequest('SendTokenSingle', 'GET', {
     ApiKey: SMS_API_KEY,
     TemplateKey: TEMPLATE_KEY,
@@ -32,10 +30,8 @@ function sendOTPPatternSMS(destination, otp) {
   });
 }
 
-// ذخیره OTP موقت در حافظه (۳ دقیقه)
 const otpCache = {};
 
-// اتصال به MongoDB
 const uri = 'mongodb+srv://qutor:armanMaralani@cluster0.3wz5uni.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0';
 const client = new MongoClient(uri, { useUnifiedTopology: true });
 
@@ -60,18 +56,15 @@ const port = process.env.PORT || 10000;
 app.use(cors());
 app.use(express.json({ limit: '20mb' }));
 
-// لاگ درخواست‌ها
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} - Body:`, req.body ? Object.keys(req.body) : 'no body');
   next();
 });
 
-// تست اتصال ساده
 app.get('/', (req, res) => {
   res.send('✅ Qutor API is running.');
 });
 
-// روت ارسال OTP
 app.post('/send-otp', async (req, res) => {
   const { phone } = req.body;
   if (!phone) return res.status(400).json({ error: "شماره موبایل الزامی است" });
@@ -88,7 +81,6 @@ app.post('/send-otp', async (req, res) => {
   }
 });
 
-// روت تایید OTP
 app.post('/verify-otp', (req, res) => {
   const { phone, otp } = req.body;
   if (!phone || !otp) return res.status(400).json({ error: "ورودی نامعتبر است" });
@@ -102,7 +94,6 @@ app.post('/verify-otp', (req, res) => {
   res.json({ success: true, message: "ورود موفق!" });
 });
 
-// روت بررسی وجود اطلاعات کاربر
 app.post('/check-user-info', async (req, res) => {
   const { phoneNumber } = req.body;
   if (!phoneNumber) return res.status(400).json({ error: "شماره موبایل الزامی است" });
@@ -116,7 +107,6 @@ app.post('/check-user-info', async (req, res) => {
   }
 });
 
-// روت ثبت اطلاعات کاربر
 app.post('/submit-user-info', async (req, res) => {
   const { phoneNumber, name, lastName, age, gender, field } = req.body;
 
@@ -125,13 +115,11 @@ app.post('/submit-user-info', async (req, res) => {
   }
 
   try {
-    // بررسی وجود کاربر
     const existingUser = await usersCollection.findOne({ phoneNumber });
     if (existingUser) {
       return res.status(400).json({ message: "کاربر قبلاً ثبت شده است." });
     }
 
-    // درج کاربر جدید
     await usersCollection.insertOne({
       phoneNumber,
       name,
@@ -149,7 +137,6 @@ app.post('/submit-user-info', async (req, res) => {
   }
 });
 
-// روت استخراج متن از تصویر و پاسخ با OpenAI
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 if (!OPENAI_API_KEY) {
   console.error('❌ کلید OpenAI در محیط تنظیم نشده');
@@ -161,29 +148,14 @@ app.post('/ask-question-image', async (req, res) => {
   if (!imageBase64) return res.status(400).json({ error: '❌ تصویر ارسال نشده است.' });
 
   try {
-    // مرحله ۱: OCR با مدل gpt-3.5-turbo
+    // ارسال تصویر به سرویس OCR
     const ocrResponse = await axios.post(
-      'https://api.openai.com/v1/chat/completions',
-      {
-        model: 'gpt-3.5-turbo',
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'text', text: 'فقط متن دقیق سؤال و گزینه‌ها را از تصویر استخراج کن (بدون هیچ توضیح اضافه، فقط خود متن سؤال و گزینه‌ها).' },
-            { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${imageBase64}` } }
-          ]
-        }],
-        max_tokens: 700
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-          'Content-Type': 'application/json',
-        }
-      }
+      'https://ocr-flask.liara.run/api/ocr',
+      { imageBase64 },
+      { headers: { 'Content-Type': 'application/json' } }
     );
 
-    const ocrText = ocrResponse.data.choices?.[0]?.message?.content?.trim() || '';
+    const ocrText = ocrResponse.data.text?.trim() || '';
     console.log('[OCR] متن استخراج‌شده:', ocrText);
 
     if (!ocrText || ocrText.length < 4) {
@@ -195,7 +167,7 @@ app.post('/ask-question-image', async (req, res) => {
       });
     }
 
-    // مرحله ۲: جستجوی پیشرفته با کلمات کلیدی
+    // جستجو در دیتابیس
     let searchResults = [];
     if (ocrText.length > 4) {
       const keywords = ocrText.replace(/[۰-۹0-9\(\)\/\\\:\?\.\,\،\؛\:\-\"\']/g, '').split(/\s+/).filter(w => w.length > 2);
@@ -217,7 +189,7 @@ app.post('/ask-question-image', async (req, res) => {
       contextText = searchResults.map((item, idx) => `[منبع ${idx + 1}]:\n${item.chunk}`).join('\n\n');
     }
 
-    // مرحله ۳: پاسخ نهایی با مدل gpt-3.5-turbo
+    // ارسال متن و context به OpenAI مدل gpt-3.5-turbo
     let finalAnswer = '';
     if (contextText) {
       const qaResponse = await axios.post(
@@ -258,7 +230,6 @@ app.post('/ask-question-image', async (req, res) => {
   }
 });
 
-// اجرای سرور
 app.listen(port, '0.0.0.0', () => {
   console.log(`🚀 Server is running on port ${port}`);
 });
