@@ -144,13 +144,18 @@ if (!OPENAI_API_KEY) {
   process.exit(1);
 }
 
-// ============ اصلاح اصلی اینجاست ==============
+// ========= ESCAPE REGEX =========
+function escapeRegex(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// ============ اصل ماجرا اینجاست ==============
 app.post('/ask-question-image', async (req, res) => {
   const { imageBase64 } = req.body;
   if (!imageBase64) return res.status(400).json({ error: '❌ تصویر ارسال نشده است.' });
 
   try {
-    // تغییر اصلی: ارسال مستقیم base64 به OCR با application/json
+    // ارسال base64 با application/json به OCR
     console.log('[OCR] Sending image to OCR service...');
     const ocrResponse = await axios.post(
       'https://ocr-flask.liara.run/ocr',
@@ -173,7 +178,8 @@ app.post('/ask-question-image', async (req, res) => {
     // Search database
     let searchResults = [];
     if (ocrText.length > 4) {
-      const keywords = ocrText.replace(/[۰-۹0-9\(\)\/\\\:\?\.\,\،\؛\:\-\"\']/g, '').split(/\s+/).filter(w => w.length > 2);
+      const rawKeywords = ocrText.replace(/[۰-۹0-9\(\)\/\\\:\?\.\,\،\؛\:\-\"\']/g, '').split(/\s+/).filter(w => w.length > 2);
+      const keywords = rawKeywords.map(escapeRegex);
       console.log('[DB] Search keywords:', keywords);
       if (keywords.length > 0) {
         searchResults = await sourcesCollection.find({
@@ -237,7 +243,7 @@ app.post('/ask-question-image', async (req, res) => {
     });
   }
 });
-// ============ پایان اصلاح اصلی ==============
+// ============ پایان اصلاح ==============
 
 app.listen(port, '0.0.0.0', () => {
   console.log(`🚀 Server is running on port ${port}`);
