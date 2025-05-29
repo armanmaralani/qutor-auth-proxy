@@ -205,7 +205,7 @@ app.post('/rag-answer', async (req, res) => {
     const relatedDocs = docs.slice(0, 5);
 
     if (!relatedDocs.length) {
-      return res.json({ answer: "اطلاعات مرتبط در دیتابیس پیدا نشد." });
+      return res.json({ answer: "بهتره که این سوال رو با معلمت حل کنی تا دقیق مسیر رو بهت آموزش بده." });
     }
 
     // ساخت پرامپت نهایی
