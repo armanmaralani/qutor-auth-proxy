@@ -153,7 +153,7 @@ app.post('/rag-answer', async (req, res) => {
     const questionExtractRes = await axios.post(
       geminiApiUrl,
       {
-        model: "google/gemini-2.0-flash-001",
+        model: "openai/gpt-4.1",
         messages: [
           {
             role: "user",
@@ -226,7 +226,7 @@ ${infoString}
     const answerRes = await axios.post(
       geminiApiUrl,
       {
-        model: "google/gemini-2.0-flash-001",
+        model: "openai/gpt-4.1",
         messages: [
           { role: "system", content: "تو یک معلم خبره و دقیق هستی." },
           { role: "user", content: finalPrompt }
