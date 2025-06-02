@@ -1,4 +1,4 @@
-// 📁 فایل کامل سرور با جستجوی embedding حرفه‌ای برای /rag-answer
+// 📁 فایل کامل سرور با جستجوی embedding حرفه‌ای و پرامپت معلمی برای /rag-answer
 
 require('dotenv').config();
 const express = require('express');
@@ -100,7 +100,7 @@ app.post('/submit-user-info', async (req, res) => {
   }
 });
 
-// --- جستجوی هوشمند با Embedding ---
+// --- جستجوی هوشمند با Embedding و پاسخ معلمی ---
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const openai = axios.create({
   baseURL: 'https://api.openai.com/v1',
@@ -113,24 +113,30 @@ app.post('/rag-answer', async (req, res) => {
   const geminiApiUrl = 'https://ai.liara.ir/api/v1/6836ffd10a2dc9a15179b645/chat/completions';
 
   try {
+    // استخراج متن سوال از تصویر
     const visionPrompt = "فقط متن سؤال کامل موجود در این تصویر را دقیق و بدون توضیح اضافه استخراج کن.";
     const visionRes = await axios.post(geminiApiUrl, {
       model: "openai/gpt-4.1",
-      messages: [{ role: "user", content: [
-        { type: "text", text: visionPrompt },
-        { type: "image_url", image_url: { url: imageUrl } }
-      ]}]
+      messages: [{
+        role: "user",
+        content: [
+          { type: "text", text: visionPrompt },
+          { type: "image_url", image_url: { url: imageUrl } }
+        ]
+      }]
     }, { headers: { Authorization: `Bearer ${liaraApiKey}` } });
 
     const questionText = visionRes.data.choices[0].message.content.trim();
     if (!questionText) return res.status(400).json({ error: "سؤال استخراج نشد" });
 
+    // استخراج embedding سوال
     const embeddingRes = await openai.post('/embeddings', {
       input: questionText,
       model: 'text-embedding-ada-002'
     });
     const queryVector = embeddingRes.data.data[0].embedding;
 
+    // جستجوی نزدیک‌ترین پاسخ‌ها در دیتابیس
     const similarDocs = await sourcesCollection.aggregate([
       {
         $vectorSearch: {
@@ -145,20 +151,39 @@ app.post('/rag-answer', async (req, res) => {
 
     if (!similarDocs.length) return res.json({ answer: "هیچ پاسخ مناسبی پیدا نشد." });
 
-    const infoString = similarDocs.map(d => `- ${d.question}\n  پاسخ: ${d.answer}`).join('\n');
+    // ساخت متن اطلاعات آموزشی برای پرامپت
+    const infoString = similarDocs.map((d, i) => `- ${d.question}\n  پاسخ: ${d.answer}`).join('\n');
 
-    const finalPrompt = `صورت سؤال:\n${questionText}\n\nاطلاعات آموزشی:\n${infoString}\n\nپاسخ را فقط از این اطلاعات بده.`;
+    // پرامپت معلمی
+    const finalPrompt = `
+صورت سؤال:
+${questionText}
+
+اطلاعات آموزشی:
+${infoString}
+
+نقش تو یک معلم حرفه‌ای، دلسوز و باحوصله است. فقط بر اساس همین اطلاعات بالا به سؤال پاسخ بده اما جواب را با زبان ساده و قابل فهم، مثل یک معلم توضیح بده. اگر لازم شد با مثال توضیح بده و هرگز اشاره نکن که این جواب از دیتابیس یا منبع خاصی آمده است. انگار روبه‌روی دانش‌آموزت هستی و می‌خواهی درس را کاملاً یاد بگیرد. جواب را کامل و آموزشی بنویس.
+`;
 
     const answerRes = await axios.post(geminiApiUrl, {
       model: "openai/gpt-4.1",
       messages: [
-        { role: "system", content: "تو یک معلم خبره هستی." },
+        { role: "system", content: "تو یک معلم حرفه‌ای، دلسوز و باحوصله هستی که همیشه می‌خواهی مطالب را ساده، قابل فهم و آموزشی برای دانش‌آموزت توضیح دهی." },
         { role: "user", content: finalPrompt }
       ]
     }, { headers: { Authorization: `Bearer ${liaraApiKey}` } });
 
     const answer = answerRes.data.choices[0].message.content.trim();
-    res.json({ answer, extractedQuestion: questionText, relatedDocs: similarDocs });
+
+    // برای تست یا نمایش در کلاینت، جواب، سوال استخراج‌شده و داک‌های مرتبط را می‌فرستیم
+    res.json({
+      answer,
+      extractedQuestion: questionText,
+      relatedDocs: similarDocs
+    });
+
+    // مثال: اگر سوال "قانون سوم نیوتن چیست؟" باشد و جواب:
+    // "قانون سوم نیوتن می‌گوید: هر عملی، عکس‌العملی مساوی و در جهت مخالف دارد. یعنی اگر تو به یک دیوار ضربه بزنی، دیوار هم به همان اندازه به دست تو نیرو وارد می‌کند و این باعث می‌شود حس کنی دستت به عقب رانده می‌شود."
   } catch (err) {
     console.error("❌ /rag-answer error:", err.response?.data || err.message);
     res.status(500).json({ error: "خطای سرور" });
