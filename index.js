@@ -112,7 +112,6 @@ app.post('/rag-answer', async (req, res) => {
   const geminiApiUrl = 'https://ai.liara.ir/api/v1/6836ffd10a2dc9a15179b645/chat/completions';
 
   try {
-    // ۱. استخراج متن سؤال از تصویر
     const visionPrompt = "فقط متن سؤال کامل موجود در این تصویر را دقیق و بدون توضیح اضافه استخراج کن.";
     const visionRes = await axios.post(geminiApiUrl, {
       model: "openai/gpt-4.1",
@@ -134,7 +133,6 @@ app.post('/rag-answer', async (req, res) => {
       });
     }
 
-    // ۲. استخراج embedding و جستجو در دیتابیس
     const embeddingRes = await openai.post('/embeddings', {
       input: questionText,
       model: 'text-embedding-ada-002'
@@ -148,95 +146,51 @@ app.post('/rag-answer', async (req, res) => {
           path: 'embedding',
           queryVector,
           numCandidates: 100,
-          limit: 5
+          limit: 10
         }
       }
     ]).toArray();
 
     let answer = "";
 
-  function getTeacherPrompt({questionText, infoString, hasDbDocs}) {
-    if (hasDbDocs) {
-      return `
-  تو نقش یک معلم حرفه‌ای و باتجربه هستی. وظیفه‌ات این است که جواب این سؤال را کاملاً گام‌به‌گام و آموزش‌محور و بدون هیچ ارجاع به منبع، دیتابیس، اطلاعات آموزشی بالا یا هیچ سندی توضیح بدهی. حق نداری به هیچ‌وجه از عباراتی مانند «بر اساس اطلاعات دیتابیس»، «مطابق اطلاعات فوق»، «طبق داده‌های بالا»، «مطابق سند»، «بر اساس فایل» یا مشابه استفاده کنی. فرض کن فقط خودت سر کلاس هستی و می‌خواهی به دانش‌آموزت توضیح بدهی. فقط توضیح کامل، مرحله به مرحله و با زبان خودت بده.
-  اگر لازم است عدد یا نکته‌ای را بگویی، مستقیماً در جواب بنویس، نه این‌که بگویی «طبق جدول» یا «طبق فایل».
-  همه چیز را فقط به زبان آموزش بنویس، بدون هیچ رفرنس یا اشاره اضافی.
-  ----------------
-  صورت سؤال:
-  ${questionText}
-
-  اطلاعات آموزشی (فقط برای کمک به جواب، اما نباید حتی یک کلمه به آن اشاره کنی!):
-  ${infoString}
-  `;
-    } else {
-      return `
-  تو نقش یک معلم متوسط و استاد کنکور ایرانی هستی. باید به این سؤال با زبان ساده، آموزش گام‌به‌گام و بدون هیچ ارجاعی به منبع یا کتاب یا جدول جواب بدهی. حق نداری از هیچ عبارتی شبیه «بر اساس اطلاعات»، «طبق داده‌های بالا»، «مطابق سند»، «طبق جدول» یا هر چیز مشابهی استفاده کنی. فرض کن دانش‌آموزت سر کلاس نشسته و فقط توضیح تو را می‌شنود. همه مفاهیم را آموزش بده، داده‌ها را مستقیم بنویس و هیچ‌وقت به فصل، جدول یا منبع اشاره نکن.
-  ----------------
-  صورت سؤال:
-  ${questionText}
-  `;
+    function getTeacherPrompt({ questionText, infoString, hasDbDocs }) {
+      if (hasDbDocs) {
+        return `تو نقش یک معلم حرفه‌ای هستی...\nسؤال: ${questionText}\nاطلاعات آموزشی: ${infoString}`;
+      } else {
+        return `تو نقش یک معلم حرفه‌ای هستی...\nسؤال: ${questionText}`;
+      }
     }
-  }
-
 
     if (similarDocs.length > 0) {
-      // اگر دیتابیس جواب داشت: معلمی، گام به گام، بدون ارجاع به دیتابیس
       const infoString = similarDocs.map(d => `- ${d.question}\n  پاسخ: ${d.answer}`).join('\n');
-      const finalPrompt = getTeacherPrompt({
-        questionText,
-        infoString,
-        hasDbDocs: true,
-      });
+      const finalPrompt = getTeacherPrompt({ questionText, infoString, hasDbDocs: true });
 
       const answerRes = await axios.post(geminiApiUrl, {
         model: "openai/gpt-4.1",
         messages: [
-          { role: "system", content: "تو یک معلم حرفه‌ای و باحوصله هستی که آموزش گام به گام و بدون هیچ ارجاع به منبع می‌دهی." },
+          { role: "system", content: "تو یک معلم حرفه‌ای هستی..." },
           { role: "user", content: finalPrompt }
         ]
       }, { headers: { Authorization: `Bearer ${liaraApiKey}` } });
 
       answer = answerRes.data.choices[0].message.content.trim();
-      if (!answer || answer.length < 10) {
-        answer = "با توجه به پیچیدگی این سؤال، بهتر است آن را با معلم خود هماهنگ کنید تا راه حل را دقیق‌تر آموزش ببینید.";
-      }
     } else {
-      // اگر دیتابیس جواب نداشت: معلم کنکوری ایرانی و آموزش کامل، باز بدون هیچ ارجاع
-      const finalPrompt = getTeacherPrompt({
-        questionText,
-        infoString: "",
-        hasDbDocs: false,
-      });
+      const finalPrompt = getTeacherPrompt({ questionText, infoString: "", hasDbDocs: false });
 
       const answerRes = await axios.post(geminiApiUrl, {
         model: "openai/gpt-4.1",
         messages: [
-          { role: "system", content: "تو یک معلم مقطع متوسطه اول و دوم و استاد کنکور ایرانی هستی که فقط آموزش گام به گام و بدون هیچ ارجاعی به منبع یا جدول می‌دهی." },
+          { role: "system", content: "تو یک معلم حرفه‌ای هستی..." },
           { role: "user", content: finalPrompt }
         ]
       }, { headers: { Authorization: `Bearer ${liaraApiKey}` } });
 
       answer = answerRes.data.choices[0].message.content.trim();
-      if (!answer || answer.length < 10) {
-        answer = "با توجه به پیچیدگی این سؤال، بهتر است آن را با معلم خود هماهنگ کنید تا راه حل را دقیق‌تر آموزش ببینید.";
-      }
     }
 
-    res.json({
-      answer,
-      extractedQuestion: questionText,
-      relatedDocs: similarDocs
-    });
-
+    res.json({ answer, extractedQuestion: questionText, relatedDocs: similarDocs });
   } catch (err) {
     console.error("❌ /rag-answer error:", err.response?.data || err.message);
-    if (err.response?.status === 400 || err.response?.status === 500) {
-      return res.json({
-        answer: "با توجه به پیچیدگی این سؤال، بهتر است آن را با معلم خود هماهنگ کنید تا راه حل را دقیق‌تر آموزش ببینید.",
-        extractedQuestion: null,
-        relatedDocs: []
-      });
-    }
     res.status(500).json({ error: "خطای سرور" });
   }
 });
