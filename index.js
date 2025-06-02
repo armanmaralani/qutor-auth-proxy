@@ -29,7 +29,7 @@ function sendOTPPatternSMS(destination, otp) {
 
 const otpCache = {};
 
-const uri = 'mongodb://root:rAFPwnjnIKzWCibfMH6mWpC6@qutor-database:27017/my-app?authSource=admin&replicaSet=rs0&directConnection=true';
+const uri = process.env.MONGO_URI;
 const client = new MongoClient(uri, { useUnifiedTopology: true });
 
 let usersCollection, sourcesCollection;
@@ -99,7 +99,6 @@ app.post('/submit-user-info', async (req, res) => {
   }
 });
 
-// --- /rag-answer با رفتار سفت و معلمی واقعی ---
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const openai = axios.create({
   baseURL: 'https://api.openai.com/v1',
