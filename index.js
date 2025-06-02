@@ -1,5 +1,4 @@
-// 📁 فایل کامل سرور با جستجوی embedding حرفه‌ای و پرامپت معلمی برای /rag-answer
-
+// 📁 فایل کامل سرور با جستجوی embedding حرفه‌ای و پرامپت معلمی برای /rag-answer با هندلینگ کامل
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -100,7 +99,7 @@ app.post('/submit-user-info', async (req, res) => {
   }
 });
 
-// --- جستجوی هوشمند با Embedding و پاسخ معلمی ---
+// --- /rag-answer با رفتار کاملاً هوشمند و معلمی ---
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const openai = axios.create({
   baseURL: 'https://api.openai.com/v1',
@@ -113,7 +112,7 @@ app.post('/rag-answer', async (req, res) => {
   const geminiApiUrl = 'https://ai.liara.ir/api/v1/6836ffd10a2dc9a15179b645/chat/completions';
 
   try {
-    // استخراج متن سوال از تصویر
+    // ۱. استخراج متن سؤال از تصویر
     const visionPrompt = "فقط متن سؤال کامل موجود در این تصویر را دقیق و بدون توضیح اضافه استخراج کن.";
     const visionRes = await axios.post(geminiApiUrl, {
       model: "openai/gpt-4.1",
@@ -127,16 +126,21 @@ app.post('/rag-answer', async (req, res) => {
     }, { headers: { Authorization: `Bearer ${liaraApiKey}` } });
 
     const questionText = visionRes.data.choices[0].message.content.trim();
-    if (!questionText) return res.status(400).json({ error: "سؤال استخراج نشد" });
+    if (!questionText) {
+      return res.json({
+        answer: "متن سؤال قابل استخراج نبود. لطفاً عکس واضح‌تر و دقیق‌تری ارسال کنید.",
+        extractedQuestion: null,
+        relatedDocs: []
+      });
+    }
 
-    // استخراج embedding سوال
+    // ۲. استخراج embedding و جستجو در دیتابیس
     const embeddingRes = await openai.post('/embeddings', {
       input: questionText,
       model: 'text-embedding-ada-002'
     });
     const queryVector = embeddingRes.data.data[0].embedding;
 
-    // جستجوی نزدیک‌ترین پاسخ‌ها در دیتابیس
     const similarDocs = await sourcesCollection.aggregate([
       {
         $vectorSearch: {
@@ -149,13 +153,13 @@ app.post('/rag-answer', async (req, res) => {
       }
     ]).toArray();
 
-    if (!similarDocs.length) return res.json({ answer: "هیچ پاسخ مناسبی پیدا نشد." });
+    let answer = "";
+    let infoString = "";
 
-    // ساخت متن اطلاعات آموزشی برای پرامپت
-    const infoString = similarDocs.map((d, i) => `- ${d.question}\n  پاسخ: ${d.answer}`).join('\n');
-
-    // پرامپت معلمی
-    const finalPrompt = `
+    if (similarDocs.length > 0) {
+      // ۳. اگر دیتابیس جواب داشت: با context و لحن معلمی پاسخ بده
+      infoString = similarDocs.map(d => `- ${d.question}\n  پاسخ: ${d.answer}`).join('\n');
+      const finalPrompt = `
 صورت سؤال:
 ${questionText}
 
@@ -165,27 +169,57 @@ ${infoString}
 نقش تو یک معلم حرفه‌ای، دلسوز و باحوصله است. فقط بر اساس همین اطلاعات بالا به سؤال پاسخ بده اما جواب را با زبان ساده و قابل فهم، مثل یک معلم توضیح بده. اگر لازم شد با مثال توضیح بده و هرگز اشاره نکن که این جواب از دیتابیس یا منبع خاصی آمده است. انگار روبه‌روی دانش‌آموزت هستی و می‌خواهی درس را کاملاً یاد بگیرد. جواب را کامل و آموزشی بنویس.
 `;
 
-    const answerRes = await axios.post(geminiApiUrl, {
-      model: "openai/gpt-4.1",
-      messages: [
-        { role: "system", content: "تو یک معلم حرفه‌ای، دلسوز و باحوصله هستی که همیشه می‌خواهی مطالب را ساده، قابل فهم و آموزشی برای دانش‌آموزت توضیح دهی." },
-        { role: "user", content: finalPrompt }
-      ]
-    }, { headers: { Authorization: `Bearer ${liaraApiKey}` } });
+      const answerRes = await axios.post(geminiApiUrl, {
+        model: "openai/gpt-4.1",
+        messages: [
+          { role: "system", content: "تو یک معلم حرفه‌ای، دلسوز و باحوصله هستی که همیشه می‌خواهی مطالب را ساده، قابل فهم و آموزشی برای دانش‌آموزت توضیح دهی." },
+          { role: "user", content: finalPrompt }
+        ]
+      }, { headers: { Authorization: `Bearer ${liaraApiKey}` } });
 
-    const answer = answerRes.data.choices[0].message.content.trim();
+      answer = answerRes.data.choices[0].message.content.trim();
+      // اگر مدل جواب نداد یا بی‌ربط بود
+      if (!answer || answer.length < 10) {
+        answer = "با توجه به پیچیدگی این سؤال، بهتر است آن را با معلم خود هماهنگ کنید تا راه حل را دقیق‌تر آموزش ببینید.";
+      }
+    } else {
+      // ۴. اگر دیتابیس جواب نداشت: مدل آزادانه و با نقش معلم متوسط/استاد کنکور ایرانی جواب بدهد
+      const noDbPrompt = `
+تو نقش یک معلم متوسط و استاد کنکور در ایران هستی. باید به این سؤال با زبان ساده و کاملاً آموزشی جواب بدی؛ فرض کن دانش‌آموزت در ایران است و باید با مثال و توضیح کامل مفاهیم را یاد بگیرد. حتماً پاسخ را طوری بنویس که انگار سر کلاس توضیح می‌دهی.
+سؤال:
+${questionText}
+`;
+      const answerRes = await axios.post(geminiApiUrl, {
+        model: "openai/gpt-4.1",
+        messages: [
+          { role: "system", content: "تو یک معلم متوسط و استاد کنکور ایرانی هستی که ساده و واضح و با مثال به سوالات پاسخ می‌دهی." },
+          { role: "user", content: noDbPrompt }
+        ]
+      }, { headers: { Authorization: `Bearer ${liaraApiKey}` } });
 
-    // برای تست یا نمایش در کلاینت، جواب، سوال استخراج‌شده و داک‌های مرتبط را می‌فرستیم
+      answer = answerRes.data.choices[0].message.content.trim();
+      // اگر باز هم مدل جواب نداد یا جواب ضعیف بود
+      if (!answer || answer.length < 10) {
+        answer = "با توجه به پیچیدگی این سؤال، بهتر است آن را با معلم خود هماهنگ کنید تا راه حل را دقیق‌تر آموزش ببینید.";
+      }
+    }
+
     res.json({
       answer,
       extractedQuestion: questionText,
       relatedDocs: similarDocs
     });
 
-    // مثال: اگر سوال "قانون سوم نیوتن چیست؟" باشد و جواب:
-    // "قانون سوم نیوتن می‌گوید: هر عملی، عکس‌العملی مساوی و در جهت مخالف دارد. یعنی اگر تو به یک دیوار ضربه بزنی، دیوار هم به همان اندازه به دست تو نیرو وارد می‌کند و این باعث می‌شود حس کنی دستت به عقب رانده می‌شود."
   } catch (err) {
     console.error("❌ /rag-answer error:", err.response?.data || err.message);
+    // اگر خطای مدل یا پارامتر بود، پیام سفارشی بده
+    if (err.response?.status === 400 || err.response?.status === 500) {
+      return res.json({
+        answer: "با توجه به پیچیدگی این سؤال، بهتر است آن را با معلم خود هماهنگ کنید تا راه حل را دقیق‌تر آموزش ببینید.",
+        extractedQuestion: null,
+        relatedDocs: []
+      });
+    }
     res.status(500).json({ error: "خطای سرور" });
   }
 });
